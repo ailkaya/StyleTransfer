@@ -12,7 +12,6 @@
 - **风格迁移训练**: 创建自定义风格，配置训练参数，实时监控训练进度
 - **生成结果可视化**: 预留评估接口，返回占位HTML界面
 - **风格管理**: 查看、编辑、删除风格
-- **系统配置**: 配置OpenAI格式的大模型API
 
 ## 技术栈
 
@@ -187,10 +186,6 @@ LLM_MODEL_NAME=gpt-3.5-turbo
 LLM_API_KEY=sk-your-api-key
 LLM_TIMEOUT=60
 ```
-
-### 2. Web界面配置
-
-访问 http://localhost:3000/config 进行配置。
 
 **支持的API服务商:**
 - OpenAI
@@ -368,7 +363,6 @@ npm run preview
 | `/api/tasks/{id}/logs` | GET | 训练日志 |
 | `/api/styles/{id}/messages` | GET/POST | 历史消息/发送消息 |
 | `/api/tasks/{id}/evaluation` | GET | 评估报告HTML |
-| `/api/config/llm` | GET/PUT | LLM配置管理 |
 | `/ws/tasks/{id}` | WS | WebSocket训练进度 |
 
 ## 文档
