@@ -408,7 +408,7 @@ const models = [
     id: 'chatglm3-6b',
     name: 'ChatGLM3-6B',
     type: 'chatglm',
-    icon: 'ChatDotRound',
+    icon: 'ChatLineRound',
     description: '清华ChatGLM系列，中文优化',
     params: '6B参数',
     speed: '效果更好'

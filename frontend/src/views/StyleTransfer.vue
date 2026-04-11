@@ -1,44 +1,36 @@
 <template>
   <div class="style-transfer-page">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-content">
-        <div class="header-title">
-          <div class="title-icon">
-            <el-icon :size="28"><Magic /></el-icon>
-          </div>
-          <div class="title-text">
-            <h1>智能风格转换</h1>
-            <p>将您的文本转换为独特的目标风格</p>
-          </div>
-        </div>
-        <div class="header-actions">
-          <el-select
-            v-model="selectedStyleId"
-            placeholder="选择目标风格"
-            size="large"
-            class="style-select"
-            @change="onStyleChange"
+    <!-- Compact Style Selector Bar -->
+    <div class="style-bar" v-if="styleStore.availableStyles.length > 0">
+      <div class="style-selector-compact">
+        <el-icon :size="18"><Collection /></el-icon>
+        <span class="selector-label">当前风格:</span>
+        <el-select
+          v-model="selectedStyleId"
+          placeholder="选择风格"
+          size="default"
+          class="style-select-mini"
+          @change="onStyleChange"
+        >
+          <el-option
+            v-for="style in styleStore.availableStyles"
+            :key="style.id"
+            :label="style.name"
+            :value="style.id"
           >
-            <template #prefix>
-              <el-icon><Collection /></el-icon>
-            </template>
-            <el-option
-              v-for="style in styleStore.availableStyles"
-              :key="style.id"
-              :label="style.name"
-              :value="style.id"
-            >
-              <div class="style-option">
-                <div class="style-info">
-                  <span class="style-name">{{ style.name }}</span>
-                  <span class="style-desc">{{ style.description || '暂无描述' }}</span>
-                </div>
-                <el-tag size="small" type="primary" effect="light">{{ style.target_style }}</el-tag>
-              </div>
-            </el-option>
-          </el-select>
-        </div>
+            <div class="style-option">
+              <span class="style-name">{{ style.name }}</span>
+              <el-tag size="small" type="primary" effect="light">{{ style.target_style }}</el-tag>
+            </div>
+          </el-option>
+        </el-select>
+        <el-tag v-if="currentStyle" size="small" type="info" effect="light" class="target-tag">
+          {{ currentStyle.target_style }}
+        </el-tag>
+      </div>
+      <div class="style-actions">
+        <el-button link :icon="Plus" @click="$router.push('/style-training')">新建</el-button>
+        <el-button link :icon="Switch" @click="$router.push('/style-management')">切换</el-button>
       </div>
     </div>
 
@@ -50,7 +42,7 @@
           <div v-if="messageStore.messages.length === 0" class="welcome-state">
             <div class="welcome-card">
               <div class="welcome-icon">
-                <el-icon :size="64"><ChatDotRound /></el-icon>
+                <el-icon :size="64"><ChatRound /></el-icon>
               </div>
               <h2>开始风格转换</h2>
               <p>输入原文和转换需求，AI将为您生成目标风格的文本</p>
@@ -78,75 +70,54 @@
               :class="['message-wrapper', msg.role]"
               :style="{ animationDelay: `${index * 0.1}s` }"
             >
-              <div class="message-bubble">
-                <div class="message-header">
-                  <div class="message-avatar" :class="msg.role">
-                    <el-icon :size="18">
-                      <User v-if="msg.role === 'user'" />
-                      <Magic v-else />
-                    </el-icon>
+              <!-- User Message - Simplified -->
+              <template v-if="msg.role === 'user'">
+                <div class="message-bubble user-bubble">
+                  <div class="user-content">
+                    {{ msg.original_text }}
                   </div>
-                  <span class="message-role">{{ msg.role === 'user' ? '我' : 'AI助手' }}</span>
-                  <span class="message-time">{{ formatTime(msg.created_at) }}</span>
+                  <div class="message-meta">
+                    <span class="message-time">{{ formatTime(msg.created_at) }}</span>
+                    <el-button link size="small" :icon="Delete" @click="deleteMessage(msg.id)">删除</el-button>
+                  </div>
                 </div>
+              </template>
 
-                <div class="message-body">
-                  <!-- User Input Summary -->
-                  <div v-if="msg.original_text || msg.requirement" class="input-summary">
-                    <div v-if="msg.original_text" class="summary-item">
-                      <span class="summary-label">原文</span>
-                      <span class="summary-text">{{ msg.original_text }}</span>
-                    </div>
-                    <div v-if="msg.requirement" class="summary-item">
-                      <span class="summary-label">需求</span>
-                      <span class="summary-text requirement">{{ msg.requirement }}</span>
-                    </div>
+              <!-- AI Message - Only response -->
+              <template v-else>
+                <div class="message-avatar assistant">
+                  <el-icon :size="16"><Star /></el-icon>
+                </div>
+                <div class="message-bubble assistant-bubble">
+                  <div class="assistant-header">
+                    <span class="assistant-name">AI助手</span>
+                    <span class="message-time">{{ formatTime(msg.created_at) }}</span>
                   </div>
-
-                  <!-- AI Response -->
-                  <div class="response-content">
+                  <div class="assistant-content">
                     {{ msg.content }}
                   </div>
+                  <div class="message-actions">
+                    <el-button link size="small" :icon="CopyDocument" @click="copyText(msg.content)">复制</el-button>
+                    <el-button link size="small" :icon="Delete" @click="deleteMessage(msg.id)">删除</el-button>
+                  </div>
                 </div>
-
-                <div class="message-actions">
-                  <el-button
-                    v-if="msg.role === 'assistant'"
-                    link
-                    size="small"
-                    :icon="CopyDocument"
-                    @click="copyText(msg.content)"
-                  >
-                    复制
-                  </el-button>
-                  <el-button
-                    link
-                    size="small"
-                    :icon="Delete"
-                    @click="deleteMessage(msg.id)"
-                  >
-                    删除
-                  </el-button>
-                </div>
-              </div>
+              </template>
             </div>
 
             <!-- Loading State -->
             <div v-if="messageStore.sending" class="message-wrapper assistant loading">
-              <div class="message-bubble">
-                <div class="message-header">
-                  <div class="message-avatar assistant">
-                    <el-icon :size="18"><Magic /></el-icon>
-                  </div>
-                  <span class="message-role">AI助手</span>
+              <div class="message-avatar assistant">
+                <el-icon :size="16"><Star /></el-icon>
+              </div>
+              <div class="message-bubble assistant-bubble">
+                <div class="assistant-header">
+                  <span class="assistant-name">AI助手</span>
                   <span class="message-status">正在思考...</span>
                 </div>
-                <div class="message-body">
-                  <div class="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
+                <div class="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
                 </div>
               </div>
             </div>
@@ -156,25 +127,13 @@
         <!-- Input Area -->
         <div class="input-panel">
           <div class="input-container">
-            <div class="input-tabs">
-              <div
-                v-for="tab in inputTabs"
-                :key="tab.key"
-                :class="['input-tab', { active: activeTab === tab.key }]"
-                @click="activeTab = tab.key"
-              >
-                <el-icon :size="16"><component :is="tab.icon" /></el-icon>
-                <span>{{ tab.label }}</span>
-              </div>
-            </div>
-
-            <div class="input-fields">
+            <div class="input-row">
               <!-- Original Text Input -->
-              <div v-show="activeTab === 'text'" class="input-field">
+              <div class="input-column">
                 <div class="field-header">
                   <span class="field-label">
                     <el-icon><Document /></el-icon>
-                    原文内容
+                    原文
                   </span>
                   <div class="field-actions">
                     <el-upload
@@ -184,36 +143,36 @@
                       :on-change="handleFileChange"
                       accept=".txt,.md,.docx"
                     >
-                      <el-button link type="primary" :icon="Upload">
-                        上传文件
+                      <el-button link type="primary" size="small" :icon="Upload">
+                        上传
                       </el-button>
                     </el-upload>
-                    <span class="char-count">{{ originalText.length }} 字符</span>
+                    <span class="char-count">{{ originalText.length }}</span>
                   </div>
                 </div>
                 <el-input
                   v-model="originalText"
                   type="textarea"
-                  :rows="6"
-                  placeholder="请输入需要转换风格的文本..."
+                  :rows="3"
+                  placeholder="输入原文..."
                   resize="none"
                   class="custom-textarea"
                 />
               </div>
 
               <!-- Requirement Input -->
-              <div v-show="activeTab === 'requirement'" class="input-field">
+              <div class="input-column">
                 <div class="field-header">
                   <span class="field-label">
                     <el-icon><EditPen /></el-icon>
-                    转换需求
+                    需求
                   </span>
                 </div>
                 <el-input
                   v-model="requirement"
                   type="textarea"
-                  :rows="6"
-                  :placeholder="`描述您对转换的具体需求，例如：转换为${currentStyle?.target_style || '目标'}风格，保持原文意思的同时增加文采...`"
+                  :rows="3"
+                  :placeholder="`转换为${currentStyle?.target_style || '目标'}风格的要求...`"
                   resize="none"
                   class="custom-textarea"
                 />
@@ -223,21 +182,21 @@
             <div class="input-footer">
               <el-button
                 link
+                size="small"
                 :icon="Delete"
                 @click="clearHistory"
               >
-                清空对话
+                清空
               </el-button>
               <el-button
                 type="primary"
-                size="large"
                 :icon="Position"
                 :loading="messageStore.sending"
                 :disabled="!canSend"
                 class="send-button"
                 @click="sendMessage"
               >
-                开始转换
+                转换
               </el-button>
             </div>
           </div>
@@ -251,7 +210,7 @@
             <el-icon :size="80" color="#cbd5e1"><Collection /></el-icon>
           </div>
           <h2>选择一个风格开始</h2>
-          <p>您需要在上方选择或创建一个目标风格，才能开始文本转换</p>
+          <p>您需要选择或创建一个目标风格，才能开始文本转换</p>
           <el-button type="primary" size="large" @click="$router.push('/style-training')">
             <el-icon><Plus /></el-icon>
             创建新风格
@@ -263,13 +222,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useStyleStore } from '@/stores/style'
 import { useMessageStore } from '@/stores/message'
 import {
-  Magic,
+  Star,
   Collection,
-  ChatDotRound,
+  ChatRound,
   User,
   Document,
   EditPen,
@@ -278,24 +238,49 @@ import {
   Upload,
   CopyDocument,
   Clock,
-  Plus
+  Plus,
+  Switch
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+const route = useRoute()
+const router = useRouter()
 const styleStore = useStyleStore()
 const messageStore = useMessageStore()
 
 const selectedStyleId = ref('')
+
+// Handle URL query params for auto-selecting style
+onMounted(() => {
+  const styleIdFromQuery = route.query.styleId
+  if (styleIdFromQuery && styleStore.availableStyles.length > 0) {
+    // Check if the style exists and is available
+    const styleExists = styleStore.availableStyles.find(s => s.id === styleIdFromQuery)
+    if (styleExists) {
+      selectedStyleId.value = styleIdFromQuery
+      onStyleChange()
+      // Clear the query param from URL without reloading
+      router.replace({ path: '/style-transfer', query: {} })
+    }
+  }
+})
+
+// Also watch for when styles are loaded (in case they load after component mounts)
+watch(() => styleStore.availableStyles.length, (newLength) => {
+  if (newLength > 0 && route.query.styleId && !selectedStyleId.value) {
+    const styleIdFromQuery = route.query.styleId
+    const styleExists = styleStore.availableStyles.find(s => s.id === styleIdFromQuery)
+    if (styleExists) {
+      selectedStyleId.value = styleIdFromQuery
+      onStyleChange()
+      router.replace({ path: '/style-transfer', query: {} })
+    }
+  }
+})
 const originalText = ref('')
 const requirement = ref('')
 const messagesContainer = ref(null)
-const activeTab = ref('text')
-
-const inputTabs = [
-  { key: 'text', label: '原文', icon: Document },
-  { key: 'requirement', label: '需求', icon: EditPen }
-]
 
 const currentStyle = computed(() =>
   styleStore.getStyleById(selectedStyleId.value)
@@ -407,56 +392,32 @@ watch(() => messageStore.messages.length, () => {
   flex-direction: column;
 }
 
-/* Header */
-.page-header {
+/* Compact Style Bar */
+.style-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  margin-bottom: 12px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  padding: 24px 28px;
-  margin-bottom: 20px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
 }
 
-.header-content {
+.style-selector-compact {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 10px;
 }
 
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.title-icon {
-  width: 56px;
-  height: 56px;
-  background: var(--primary-gradient);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: var(--shadow-glow);
-}
-
-.title-text h1 {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.title-text p {
-  font-size: 14px;
+.selector-label {
+  font-size: 13px;
   color: var(--text-secondary);
-  margin: 4px 0 0;
 }
 
-.style-select {
-  width: 320px;
+.style-select-mini {
+  width: 200px;
 }
 
 .style-option {
@@ -466,23 +427,18 @@ watch(() => messageStore.messages.length, () => {
   padding: 4px 0;
 }
 
-.style-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.style-name {
-  font-weight: 600;
+.style-option .style-name {
+  font-weight: 500;
   color: var(--text-primary);
 }
 
-.style-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.target-tag {
+  margin-left: 8px;
+}
+
+.style-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* Main Container */
@@ -495,7 +451,7 @@ watch(() => messageStore.messages.length, () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 /* Messages Container */
@@ -571,11 +527,11 @@ watch(() => messageStore.messages.length, () => {
   justify-content: center;
 }
 
-/* Messages List */
+/* Messages - New Simplified Style */
 .messages-list {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   padding: 8px 0;
 }
 
@@ -586,6 +542,16 @@ watch(() => messageStore.messages.length, () => {
   transform: translateY(10px);
 }
 
+.message-wrapper.user {
+  justify-content: flex-end;
+}
+
+.message-wrapper.assistant {
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
 @keyframes fadeInUp {
   to {
     opacity: 1;
@@ -593,148 +559,198 @@ watch(() => messageStore.messages.length, () => {
   }
 }
 
-.message-wrapper.user {
-  justify-content: flex-end;
+/* User Message Bubble - Modern Style */
+.user-bubble {
+  min-width: 80px;
+  max-width: 85%;
+  width: fit-content;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 20px 20px 4px 20px;
+  padding: 14px 18px;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  position: relative;
 }
 
-.message-bubble {
-  max-width: 80%;
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
-  overflow: hidden;
+.user-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -6px;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #764ba2 0%, #764ba2 100%);
+  clip-path: polygon(0 0, 0% 100%, 100% 100%);
 }
 
-.message-wrapper.user .message-bubble {
-  background: var(--primary-gradient);
-  border: none;
+.user-content {
+  font-size: 15px;
+  line-height: 1.7;
+  word-break: break-word;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  width: fit-content;
 }
 
-.message-wrapper.user .message-bubble :deep(*) {
-  color: white !important;
-}
-
-.message-header {
+.message-meta {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-.message-wrapper.user .message-header {
-  border-bottom-color: rgba(255, 255, 255, 0.2);
+.message-meta .message-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
 }
 
-.message-avatar {
-  width: 32px;
-  height: 32px;
+.message-meta .el-button {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.message-meta .el-button:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Assistant Message - Modern Style */
+.message-avatar.assistant {
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-}
-
-.message-avatar.assistant {
-  background: var(--primary-gradient);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  border: 2px solid white;
 }
 
-.message-role {
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text-primary);
+.assistant-bubble {
+  min-width: 120px;
+  max-width: 85%;
+  width: fit-content;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 8px 20px 20px 20px;
+  border: 1px solid rgba(102, 126, 234, 0.15);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  position: relative;
 }
 
-.message-time {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-muted);
+.assistant-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
 }
 
-.message-status {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
+.assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(102, 126, 234, 0.04);
+  border-bottom: 1px solid rgba(102, 126, 234, 0.08);
 }
 
-.message-body {
-  padding: 16px;
-}
-
-.input-summary {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px dashed var(--border-color);
-}
-
-.message-wrapper.user .input-summary {
-  border-bottom-color: rgba(255, 255, 255, 0.2);
-}
-
-.summary-item {
-  margin-bottom: 8px;
-}
-
-.summary-item:last-child {
-  margin-bottom: 0;
-}
-
-.summary-label {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.summary-text {
-  display: block;
+.assistant-name {
   font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+  font-weight: 700;
+  color: #667eea;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.summary-text.requirement {
-  font-style: italic;
+.assistant-name::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #10b981;
 }
 
-.response-content {
+.assistant-header .message-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.assistant-content {
+  padding: 16px 18px;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--text-primary);
   white-space: pre-wrap;
+  word-break: break-word;
+  width: fit-content;
+  min-width: 100%;
+  box-sizing: border-box;
 }
 
 .message-actions {
   display: flex;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(102, 126, 234, 0.03);
+  border-top: 1px solid rgba(102, 126, 234, 0.08);
+  width: fit-content;
+  min-width: 100%;
+  box-sizing: border-box;
 }
 
-.message-wrapper.user .message-actions {
-  background: rgba(255, 255, 255, 0.1);
-  border-top-color: rgba(255, 255, 255, 0.2);
+.message-actions .el-button {
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.message-actions .el-button:hover {
+  color: #667eea;
+  transform: translateY(-1px);
+}
+
+/* Loading State */
+.message-wrapper.loading {
+  opacity: 0.8;
+}
+
+.message-wrapper.loading .assistant-bubble {
+  min-width: 200px;
+}
+
+.message-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* Typing Indicator */
 .typing-indicator {
   display: flex;
   gap: 6px;
-  padding: 12px 0;
+  padding: 14px;
 }
 
 .typing-indicator span {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   background: var(--primary-color);
   border-radius: 50%;
   animation: typing 1.4s infinite ease-in-out both;
@@ -757,63 +773,33 @@ watch(() => messageStore.messages.length, () => {
 }
 
 .input-container {
-  padding: 20px;
+  padding: 16px;
 }
 
-.input-tabs {
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.input-column {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.input-tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.input-tab:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.input-tab.active {
-  background: var(--primary-gradient);
-  color: white;
-  box-shadow: var(--shadow-glow);
-}
-
-.input-fields {
-  min-height: 180px;
-}
-
-.input-field {
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  flex-direction: column;
 }
 
 .field-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .field-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -821,20 +807,20 @@ watch(() => messageStore.messages.length, () => {
 .field-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .char-count {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
 .custom-textarea :deep(.el-textarea__inner) {
   border-radius: var(--radius-md);
   border-color: var(--border-color);
-  padding: 16px;
-  font-size: 15px;
-  line-height: 1.6;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.5;
   transition: all var(--transition-fast);
 }
 
@@ -847,13 +833,13 @@ watch(() => messageStore.messages.length, () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border-color);
 }
 
 .send-button {
-  padding: 12px 32px;
+  padding: 10px 24px;
   font-weight: 600;
 }
 
@@ -891,8 +877,36 @@ watch(() => messageStore.messages.length, () => {
   margin: 0 0 24px;
 }
 
-/* Loading Animation */
-.message-wrapper.loading .message-bubble {
-  opacity: 0.8;
+/* Responsive */
+@media (max-width: 768px) {
+  .style-bar {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .style-selector-compact {
+    width: 100%;
+  }
+
+  .style-select-mini {
+    flex: 1;
+  }
+
+  .style-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .user-bubble {
+    max-width: 85%;
+  }
+
+  .assistant-bubble {
+    max-width: 85%;
+  }
 }
 </style>

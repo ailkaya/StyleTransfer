@@ -3,7 +3,7 @@
     <div class="sidebar-header">
       <div class="logo">
         <div class="logo-icon">
-          <el-icon :size="24"><Magic /></el-icon>
+          <el-icon :size="24"><Star /></el-icon>
         </div>
         <div class="logo-text">
           <span class="logo-title">StyleAI</span>
@@ -70,7 +70,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Magic, InfoFilled } from '@element-plus/icons-vue'
+import { Star, InfoFilled } from '@element-plus/icons-vue'
 import router from '@/router'
 
 const $route = useRoute()

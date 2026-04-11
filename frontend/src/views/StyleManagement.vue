@@ -1,183 +1,216 @@
 <template>
-  <div class="management-page">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-content">
-        <div class="header-title">
-          <div class="title-icon">
-            <el-icon :size="28"><Collection /></el-icon>
-          </div>
-          <div class="title-text">
-            <h1>风格管理</h1>
-            <p>查看和管理您的所有风格</p>
-          </div>
+  <div class="style-management-page">
+    <!-- Compact Header Bar with Filters -->
+    <div class="management-bar">
+      <div class="bar-left">
+        <el-icon :size="18"><Collection /></el-icon>
+        <span class="bar-label">风格管理</span>
+        <el-tag size="small" type="info" effect="light">{{ styleStore.styles.length }} 个风格</el-tag>
+      </div>
+
+      <!-- Search Box -->
+      <div class="bar-search">
+        <div class="search-box" :class="{ focused: isSearchFocused }">
+          <el-icon class="search-icon"><Search /></el-icon>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="搜索风格名称..."
+            @focus="isSearchFocused = true"
+            @blur="isSearchFocused = false"
+          />
+          <el-icon v-if="searchQuery" class="clear-btn" @click="searchQuery = ''"><CircleClose /></el-icon>
         </div>
-        <div class="header-stats">
-          <div class="stat-box">
-            <span class="stat-value">{{ styleStore.styles.length }}</span>
-            <span class="stat-label">总风格数</span>
-          </div>
-          <div class="stat-box available">
-            <span class="stat-value">{{ availableCount }}</span>
-            <span class="stat-label">可用</span>
-          </div>
-          <div class="stat-box training">
-            <span class="stat-value">{{ trainingCount }}</span>
-            <span class="stat-label">训练中</span>
-          </div>
+      </div>
+
+      <!-- Status Filters -->
+      <div class="bar-status-filters">
+        <button
+          :class="['status-btn', { active: statusFilter === '' }]"
+          @click="statusFilter = ''"
+        >
+          全部
+        </button>
+        <button
+          :class="['status-btn available', { active: statusFilter === 'available' }]"
+          @click="statusFilter = 'available'"
+        >
+          <span class="status-dot"></span>
+          可用
+        </button>
+        <button
+          :class="['status-btn training', { active: statusFilter === 'training' }]"
+          @click="statusFilter = 'training'"
+        >
+          <span class="status-dot"></span>
+          训练中
+        </button>
+      </div>
+
+      <div class="bar-actions">
+        <!-- View Toggle -->
+        <div class="view-toggle">
+          <button
+            :class="['toggle-btn', { active: viewMode === 'grid' }]"
+            @click="viewMode = 'grid'"
+          >
+            <el-icon><Grid /></el-icon>
+          </button>
+          <button
+            :class="['toggle-btn', { active: viewMode === 'list' }]"
+            @click="viewMode = 'list'"
+          >
+            <el-icon><List /></el-icon>
+          </button>
         </div>
+        <el-button type="primary" :icon="Plus" @click="$router.push('/style-training')">
+          新建风格
+        </el-button>
       </div>
     </div>
 
-    <!-- Toolbar -->
-    <div class="toolbar">
-      <div class="search-box">
-        <el-icon><Search /></el-icon>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="搜索风格名称..."
-        />
-        <el-icon v-if="searchQuery" class="clear-btn" @click="searchQuery = ''"><CircleClose /></el-icon>
-      </div>
-      <div class="view-toggle">
-        <button
-          :class="['toggle-btn', { active: viewMode === 'grid' }]"
-          @click="viewMode = 'grid'"
+    <!-- Main Content -->
+    <div class="management-content">
+      <!-- Grid View -->
+      <div v-if="viewMode === 'grid' && filteredStyles.length > 0" v-loading="styleStore.loading" class="styles-grid">
+        <div
+          v-for="(style, index) in filteredStyles"
+          :key="style.id"
+          class="style-card"
+          :class="[getStatusClass(style.status), { 'new-card': index < 3 }]"
+          :style="{ animationDelay: `${index * 0.05}s` }"
         >
-          <el-icon><Grid /></el-icon>
-        </button>
-        <button
-          :class="['toggle-btn', { active: viewMode === 'list' }]"
-          @click="viewMode = 'list'"
-        >
-          <el-icon><List /></el-icon>
-        </button>
-      </div>
-    </div>
-
-    <!-- Grid View -->
-    <div v-if="viewMode === 'grid'" v-loading="styleStore.loading" class="styles-grid">
-      <div
-        v-for="style in filteredStyles"
-        :key="style.id"
-        class="style-card"
-        @click="viewStyleDetail(style)"
-      >
-        <div class="card-header-gradient" :class="getStatusClass(style.status)">
-          <div class="card-status-badge">
-            <el-icon v-if="style.status === 'available'" :size="14"><Check /></el-icon>
-            <el-icon v-else-if="style.status === 'training'" :size="14"><Loading /></el-icon>
-            <el-icon v-else :size="14"><Clock /></el-icon>
-            {{ getStatusLabel(style.status) }}
-          </div>
-        </div>
-
-        <div class="card-body">
-          <h3 class="style-name">{{ style.name }}</h3>
-          <p class="style-description">{{ style.description || '暂无描述' }}</p>
-
-          <div class="style-target">
-            <el-tag size="small" effect="light" :type="getTagType(style.status)">
-              {{ style.target_style }}
-            </el-tag>
-            <span class="base-model">{{ style.base_model }}</span>
-          </div>
-
-          <div class="style-meta">
-            <div class="meta-item">
-              <el-icon><Calendar /></el-icon>
-              <span>{{ formatTime(style.created_at) }}</span>
+          <div class="card-header">
+            <div class="header-status" :class="style.status">
+              <span class="status-indicator"></span>
+              <span class="status-text">{{ getStatusLabel(style.status) }}</span>
+            </div>
+            <div class="header-actions">
+              <el-button
+                link
+                :icon="Edit"
+                :disabled="style.status === 'training'"
+                @click="editStyle(style)"
+              />
+              <el-button
+                link
+                type="danger"
+                :icon="Delete"
+                :disabled="style.status === 'training'"
+                @click="confirmDelete(style)"
+              />
             </div>
           </div>
-        </div>
 
-        <div class="card-actions">
-          <el-button
-            link
-            type="primary"
-            :icon="Edit"
-            :disabled="style.status === 'training'"
-            @click.stop="editStyle(style)"
-          >
-            编辑
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            :icon="Delete"
-            :disabled="style.status === 'training'"
-            @click.stop="confirmDelete(style)"
-          >
-            删除
-          </el-button>
-        </div>
-      </div>
-    </div>
+          <div class="card-body" @click="viewStyleDetail(style)">
+            <div class="style-icon" :class="style.status">
+              <el-icon :size="28"><Collection /></el-icon>
+            </div>
+            <h3 class="style-name">{{ style.name }}</h3>
+            <p class="style-target">{{ style.target_style }}</p>
+            <p class="style-description">{{ style.description || '暂无描述' }}</p>
+          </div>
 
-    <!-- List View -->
-    <div v-else v-loading="styleStore.loading" class="styles-list">
-      <div class="list-header">
-        <span class="col-name">风格名称</span>
-        <span class="col-target">目标风格</span>
-        <span class="col-status">状态</span>
-        <span class="col-date">创建时间</span>
-        <span class="col-actions">操作</span>
-      </div>
-      <div
-        v-for="style in filteredStyles"
-        :key="style.id"
-        class="list-item"
-      >
-        <div class="col-name">
-          <div class="name-main">{{ style.name }}</div>
-          <div class="name-desc">{{ style.description || '暂无描述' }}</div>
-        </div>
-        <div class="col-target">
-          <el-tag size="small" :type="getTagType(style.status)">
-            {{ style.target_style }}
-          </el-tag>
-        </div>
-        <div class="col-status">
-          <div class="status-indicator" :class="style.status">
-            <span class="status-dot" />
-            {{ getStatusLabel(style.status) }}
+          <div class="card-footer">
+            <span class="footer-meta">
+              <el-icon><Calendar /></el-icon>
+              {{ formatTime(style.created_at) }}
+            </span>
+            <el-button
+              v-if="style.status === 'available'"
+              type="primary"
+              size="small"
+              @click="viewStyleDetail(style)"
+            >
+              使用
+            </el-button>
           </div>
         </div>
-        <div class="col-date">{{ formatTime(style.created_at) }}</div>
-        <div class="col-actions">
-          <el-button
-            link
-            type="primary"
-            :icon="Edit"
-            :disabled="style.status === 'training'"
-            @click="editStyle(style)"
-          >
-            编辑
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            :icon="Delete"
-            :disabled="style.status === 'training'"
-            @click="confirmDelete(style)"
-          >
-            删除
-          </el-button>
+      </div>
+
+      <!-- List View -->
+      <div v-else-if="viewMode === 'list' && filteredStyles.length > 0" v-loading="styleStore.loading" class="styles-list">
+        <div class="list-header">
+          <span>风格信息</span>
+          <span>状态</span>
+          <span>创建时间</span>
+          <span>操作</span>
+        </div>
+        <div
+          v-for="(style, index) in filteredStyles"
+          :key="style.id"
+          class="list-row"
+          :class="getStatusClass(style.status)"
+          :style="{ animationDelay: `${index * 0.03}s` }"
+        >
+          <div class="list-info" @click="viewStyleDetail(style)">
+            <div class="list-icon" :class="style.status">
+              <el-icon><Collection /></el-icon>
+            </div>
+            <div class="list-text">
+              <span class="list-name">{{ style.name }}</span>
+              <span class="list-target">{{ style.target_style }}</span>
+            </div>
+          </div>
+
+          <div class="list-status" :class="style.status">
+            <span class="status-indicator"></span>
+            <span>{{ getStatusLabel(style.status) }}</span>
+          </div>
+
+          <div class="list-date">
+            {{ formatTime(style.created_at) }}
+          </div>
+
+          <div class="list-actions">
+            <el-button
+              link
+              type="primary"
+              :icon="Edit"
+              :disabled="style.status === 'training'"
+              @click="editStyle(style)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              link
+              type="danger"
+              :icon="Delete"
+              :disabled="style.status === 'training'"
+              @click="confirmDelete(style)"
+            >
+              删除
+            </el-button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Empty State -->
-    <div v-if="!styleStore.loading && filteredStyles.length === 0" class="empty-state">
-      <div class="empty-content">
-        <el-icon :size="64" color="#cbd5e1"><Collection /></el-icon>
-        <h3>{{ searchQuery ? '没有找到匹配的风格' : '还没有创建任何风格' }}</h3>
-        <p>{{ searchQuery ? '尝试其他搜索词' : '创建您的第一个风格开始训练' }}</p>
-        <el-button v-if="!searchQuery" type="primary" @click="$router.push('/style-training')">
-          <el-icon><Plus /></el-icon>
-          创建风格
-        </el-button>
+      <!-- Empty State -->
+      <div v-if="!styleStore.loading && filteredStyles.length === 0" class="empty-state">
+        <div class="empty-card">
+          <div class="empty-icon">
+            <el-icon :size="64"><Collection /></el-icon>
+          </div>
+          <h3>
+            {{ searchQuery ? '没有找到匹配的风格' :
+               statusFilter ? '没有符合筛选条件的风格' :
+               '还没有创建任何风格' }}
+          </h3>
+          <p>
+            {{ searchQuery || statusFilter ? '尝试调整搜索或筛选条件' :
+               '创建您的第一个风格，开始AI风格转换之旅' }}
+          </p>
+          <div class="empty-actions">
+            <el-button v-if="searchQuery || statusFilter" @click="clearFilters">
+              <el-icon><CircleClose /></el-icon>
+              清除筛选
+            </el-button>
+            <el-button v-else type="primary" @click="$router.push('/style-training')">
+              <el-icon><Plus /></el-icon>
+              创建第一个风格
+            </el-button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -187,43 +220,92 @@
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[12, 24, 48]"
-        :total="styleStore.styles.length"
+        :total="filteredTotal"
         layout="total, sizes, prev, pager, next"
         background
       />
     </div>
 
-    <!-- Edit Dialog -->
+    <!-- Edit Dialog - Matching StyleTransfer Input Style -->
     <el-dialog
       v-model="editDialogVisible"
-      title="编辑风格"
-      width="500px"
+      title=""
+      width="520px"
       :close-on-click-modal="false"
-      class="modern-dialog"
+      class="edit-dialog"
+      destroy-on-close
     >
-      <el-form :model="editForm" label-position="top">
-        <el-form-item label="风格名称">
-          <el-input v-model="editForm.name" size="large" />
-        </el-form-item>
+      <div class="dialog-header-bar">
+        <div class="dialog-icon">
+          <el-icon :size="20"><Edit /></el-icon>
+        </div>
+        <span class="dialog-title">编辑风格</span>
+      </div>
 
-        <el-form-item label="风格描述">
+      <div class="dialog-body">
+        <!-- Style Name Input -->
+        <div class="input-group">
+          <div class="input-header">
+            <span class="input-label">
+              <el-icon><Collection /></el-icon>
+              风格名称
+            </span>
+          </div>
+          <el-input
+            v-model="editForm.name"
+            placeholder="输入风格名称"
+            maxlength="50"
+            show-word-limit
+          />
+        </div>
+
+        <!-- Target Style Input -->
+        <div class="input-group">
+          <div class="input-header">
+            <span class="input-label">
+              <el-icon><Star /></el-icon>
+              目标风格
+            </span>
+          </div>
+          <el-input
+            v-model="editForm.target_style"
+            placeholder="例如：正式、幽默、专业..."
+          />
+        </div>
+
+        <!-- Description Input -->
+        <div class="input-group">
+          <div class="input-header">
+            <span class="input-label">
+              <el-icon><Document /></el-icon>
+              风格描述
+            </span>
+          </div>
           <el-input
             v-model="editForm.description"
             type="textarea"
-            :rows="3"
+            :rows="4"
+            placeholder="描述这个风格的特点和适用场景..."
+            maxlength="500"
+            show-word-limit
+            resize="none"
           />
-        </el-form-item>
-
-        <el-form-item label="目标风格">
-          <el-input v-model="editForm.target_style" />
-        </el-form-item>
-      </el-form>
+        </div>
+      </div>
 
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveEdit">
-          保存修改
-        </el-button>
+        <div class="dialog-footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="saving"
+            :disabled="!editForm.name.trim()"
+            @click="saveEdit"
+          >
+            <el-icon v-if="!saving"><Check /></el-icon>
+            <span>保存修改</span>
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -240,16 +322,15 @@ import {
   Edit,
   Delete,
   Check,
-  Loading,
-  Clock,
   Calendar,
   Grid,
   List,
   CircleClose,
-  Plus
+  Plus,
+  Document,
+  Star
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const styleStore = useStyleStore()
@@ -260,6 +341,8 @@ const pageSize = ref(12)
 const viewMode = ref('grid')
 const editDialogVisible = ref(false)
 const saving = ref(false)
+const isSearchFocused = ref(false)
+const statusFilter = ref('') // '', 'available', 'training'
 
 const editForm = reactive({
   id: '',
@@ -268,16 +351,29 @@ const editForm = reactive({
   target_style: ''
 })
 
-const availableCount = computed(() =>
-  styleStore.styles.filter(s => s.status === 'available').length
-)
-
-const trainingCount = computed(() =>
-  styleStore.styles.filter(s => s.status === 'training').length
-)
+const filteredTotal = computed(() => {
+  let count = styleStore.styles.length
+  if (statusFilter.value) {
+    count = styleStore.styles.filter(s => s.status === statusFilter.value).length
+  }
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    count = styleStore.styles.filter(s =>
+      (statusFilter.value ? s.status === statusFilter.value : true) &&
+      (s.name.toLowerCase().includes(query) ||
+       (s.description && s.description.toLowerCase().includes(query)))
+    ).length
+  }
+  return count
+})
 
 const filteredStyles = computed(() => {
   let styles = styleStore.styles
+
+  // Status filter
+  if (statusFilter.value) {
+    styles = styles.filter(s => s.status === statusFilter.value)
+  }
 
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
@@ -287,11 +383,16 @@ const filteredStyles = computed(() => {
     )
   }
 
-  // Pagination
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
   return styles.slice(start, end)
 })
+
+function clearFilters() {
+  statusFilter.value = ''
+  searchQuery.value = ''
+  currentPage.value = 1
+}
 
 onMounted(() => {
   styleStore.fetchStyles({ page_size: 100 })
@@ -319,23 +420,11 @@ function getStatusLabel(status) {
   return labels[status] || status
 }
 
-function getTagType(status) {
-  const types = {
-    'pending': 'info',
-    'training': 'warning',
-    'completed': 'success',
-    'failed': 'danger',
-    'available': 'success'
-  }
-  return types[status] || 'info'
-}
-
 function formatTime(time) {
   return dayjs(time).format('YYYY-MM-DD HH:mm')
 }
 
 function viewStyleDetail(style) {
-  // Navigate to style transfer with this style selected
   router.push({
     path: '/style-transfer',
     query: { styleId: style.id }
@@ -387,150 +476,155 @@ async function confirmDelete(style) {
 </script>
 
 <style scoped>
-.management-page {
-  padding-bottom: 40px;
+.style-management-page {
+  height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
 }
 
-/* Header */
-.page-header {
+/* Compact Header Bar - Matching StyleTransfer */
+.management-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  margin-bottom: 12px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  padding: 24px 28px;
-  margin-bottom: 24px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
 }
 
-.header-content {
+.bar-left {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.title-icon {
-  width: 56px;
-  height: 56px;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-}
-
-.title-text h1 {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.title-text p {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 4px 0 0;
-}
-
-.header-stats {
-  display: flex;
-  gap: 16px;
-}
-
-.stat-box {
-  text-align: center;
-  padding: 12px 24px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  min-width: 80px;
-}
-
-.stat-box.available {
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.stat-box.training {
-  background: rgba(245, 158, 11, 0.1);
-}
-
-.stat-value {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
+  gap: 10px;
   color: var(--text-primary);
 }
 
-.stat-box.available .stat-value {
-  color: var(--success-color);
+.bar-label {
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.stat-box.training .stat-value {
-  color: var(--warning-color);
+.bar-search {
+  flex: 1;
+  max-width: 240px;
 }
 
-.stat-label {
-  display: block;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-/* Toolbar */
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-}
-
-.search-box {
+.bar-search .search-box {
   position: relative;
-  width: 320px;
-}
-
-.search-box .el-icon {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-}
-
-.search-box input {
   width: 100%;
-  padding: 12px 40px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  font-size: 14px;
-  transition: all var(--transition-fast);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
 }
 
-.search-box input:focus {
-  outline: none;
-  border-color: var(--primary-color);
+.bar-search .search-box.focused {
+  border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.search-box .clear-btn {
-  right: 14px;
-  left: auto;
-  cursor: pointer;
+.bar-search .search-icon {
+  margin-left: 12px;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.bar-search input {
+  flex: 1;
+  padding: 9px 32px 9px 8px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.bar-search input::placeholder {
   color: var(--text-muted);
 }
 
+.bar-search .clear-btn {
+  position: absolute;
+  right: 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.bar-search .clear-btn:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* Status Filters in Bar */
+.bar-status-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.status-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-btn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.status-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: transparent;
+  color: white;
+}
+
+.status-btn.available.active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.status-btn.training.active {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.status-btn .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-btn.available .status-dot {
+  background: #10b981;
+}
+
+.status-btn.training .status-dot {
+  background: #f59e0b;
+}
+
+/* View Toggle */
 .view-toggle {
   display: flex;
   gap: 4px;
-  background: var(--bg-card);
+  background: var(--bg-secondary);
   padding: 4px;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
   border: 1px solid var(--border-color);
 }
 
@@ -543,293 +637,623 @@ async function confirmDelete(style) {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
 }
 
 .toggle-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-secondary);
+  background: var(--bg-card);
 }
 
 .toggle-btn.active {
-  background: var(--primary-gradient);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* Main Content */
+.management-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 4px;
 }
 
 /* Grid View */
 .styles-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .style-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
   overflow: hidden;
-  cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: all 0.3s ease;
+  animation: fadeInUp 0.4s ease forwards;
+  opacity: 0;
+  transform: translateY(10px);
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .style-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
-  border-color: var(--primary-color);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  border-color: rgba(102, 126, 234, 0.3);
 }
 
-.card-header-gradient {
-  height: 80px;
-  position: relative;
-  padding: 16px;
+.style-card.status-available {
+  border-color: rgba(16, 185, 129, 0.3);
 }
 
-.status-pending { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%); }
-.status-training { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-.status-completed { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-.status-failed { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-.status-available { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+.style-card.status-available:hover {
+  border-color: #10b981;
+}
 
-.card-status-badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+.style-card.status-training {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.header-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
-  border-radius: 20px;
-  color: white;
   font-size: 12px;
   font-weight: 600;
 }
 
+.header-status .status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.header-status.available {
+  color: #059669;
+}
+
+.header-status.available .status-indicator {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.header-status.training {
+  color: #d97706;
+}
+
+.header-status.training .status-indicator {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+.header-status.pending {
+  color: #64748b;
+}
+
+.header-status.pending .status-indicator {
+  background: #94a3b8;
+}
+
+.header-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .card-body {
-  padding: 20px;
+  flex: 1;
+  padding: 20px 16px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.style-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  font-size: 28px;
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.style-icon.available {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+}
+
+.style-icon.training {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3);
+}
+
+.style-icon.pending {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  box-shadow: 0 8px 20px rgba(148, 163, 184, 0.3);
+}
+
+.style-card:hover .style-icon {
+  transform: scale(1.05);
 }
 
 .style-name {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.style-target {
+  font-size: 13px;
+  color: #667eea;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
 .style-description {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
-  margin: 0 0 16px;
+  margin: 0;
   line-height: 1.5;
-  height: 42px;
+  height: 40px;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
-.style-target {
+.card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.base-model {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.style-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.card-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
+  padding: 12px 16px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
+}
+
+.footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* List View */
 .styles-list {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
   overflow: hidden;
-  margin-bottom: 24px;
 }
 
 .list-header {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 140px;
+  grid-template-columns: 2fr 100px 140px 140px;
   gap: 16px;
-  padding: 16px 20px;
+  padding: 12px 20px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.list-item {
+.list-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 140px;
+  grid-template-columns: 2fr 100px 140px 140px;
   gap: 16px;
-  padding: 20px;
+  align-items: center;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
-  transition: background var(--transition-fast);
+  transition: all 0.2s ease;
+  animation: slideIn 0.3s ease forwards;
+  opacity: 0;
+  transform: translateX(-10px);
 }
 
-.list-item:hover {
-  background: var(--bg-secondary);
+@keyframes slideIn {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
-.list-item:last-child {
+.list-row:last-child {
   border-bottom: none;
 }
 
-.col-name .name-main {
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
+.list-row:hover {
+  background: rgba(102, 126, 234, 0.03);
 }
 
-.col-name .name-desc {
-  font-size: 13px;
-  color: var(--text-muted);
+.list-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.list-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.list-icon.available {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.list-icon.training {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.list-icon.pending {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+}
+
+.list-text {
+  min-width: 0;
+}
+
+.list-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
+.list-target {
+  font-size: 12px;
+  color: #667eea;
   font-weight: 500;
 }
 
-.status-dot {
+.list-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.list-status.available {
+  color: #059669;
+}
+
+.list-status.training {
+  color: #d97706;
+}
+
+.list-status.pending {
+  color: #64748b;
+}
+
+.list-status .status-indicator {
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
 
-.status-indicator.pending .status-dot { background: #94a3b8; }
-.status-indicator.training .status-dot { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
-.status-indicator.available .status-dot { background: #10b981; }
-.status-indicator.failed .status-dot { background: #ef4444; }
+.list-status.available .status-indicator {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
 
-.status-indicator.pending { color: #64748b; }
-.status-indicator.training { color: #d97706; }
-.status-indicator.available { color: #059669; }
-.status-indicator.failed { color: #dc2626; }
+.list-status.training .status-indicator {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
 
-.col-actions {
+.list-date {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.list-actions {
   display: flex;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 /* Empty State */
 .empty-state {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 80px 20px;
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
 }
 
-.empty-content {
+.empty-card {
   text-align: center;
+  padding: 48px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
+  max-width: 400px;
 }
 
-.empty-content h3 {
+.empty-icon {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  color: var(--primary-color);
+}
+
+.empty-card h3 {
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  margin: 20px 0 8px;
+  margin: 0 0 8px;
 }
 
-.empty-content p {
+.empty-card p {
   color: var(--text-secondary);
   margin: 0 0 24px;
+  font-size: 14px;
+}
+
+.empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
 }
 
 /* Pagination */
 .pagination-wrapper {
   display: flex;
   justify-content: center;
-  padding-top: 20px;
+  padding: 16px 0;
+}
+
+/* Edit Dialog - Matching StyleTransfer Input Panel */
+:deep(.edit-dialog) {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:deep(.edit-dialog .el-dialog__header) {
+  display: none;
+}
+
+:deep(.edit-dialog .el-dialog__body) {
+  padding: 0;
+}
+
+:deep(.edit-dialog .el-dialog__footer) {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.dialog-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.dialog-icon {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dialog-body {
+  padding: 20px;
+}
+
+/* Input Groups - Matching StyleTransfer */
+.input-group {
+  margin-bottom: 16px;
+}
+
+.input-group:last-child {
+  margin-bottom: 0;
+}
+
+.input-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.input-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.input-label .el-icon {
+  color: #667eea;
+}
+
+.dialog-body :deep(.el-input__wrapper) {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--border-color) inset;
+  padding: 4px 12px;
+  transition: all 0.3s ease;
+}
+
+.dialog-body :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #667eea inset;
+}
+
+.dialog-body :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px #667eea inset, 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.dialog-body :deep(.el-input__inner) {
+  height: 40px;
+  font-size: 14px;
+}
+
+.dialog-body :deep(.el-textarea__inner) {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+  transition: all 0.3s ease;
+}
+
+.dialog-body :deep(.el-textarea__inner:hover) {
+  border-color: #667eea;
+}
+
+.dialog-body :deep(.el-textarea__inner:focus) {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.dialog-body :deep(.el-input__count) {
+  right: 10px;
+  bottom: 8px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.dialog-footer .el-button--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dialog-footer .el-button--primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* Responsive */
-@media (max-width: 1024px) {
-  .styles-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+@media (max-width: 992px) {
+  .management-bar {
+    flex-wrap: wrap;
+    gap: 12px;
   }
 
-  .list-header,
-  .list-item {
-    grid-template-columns: 2fr 1fr 100px;
+  .bar-search {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
   }
 
-  .col-target,
-  .col-date {
-    display: none;
+  .bar-status-filters {
+    order: 2;
   }
 }
 
 @media (max-width: 768px) {
-  .header-content {
+  .management-bar {
     flex-direction: column;
-    gap: 20px;
+    align-items: stretch;
   }
 
-  .header-stats {
-    width: 100%;
+  .bar-left,
+  .bar-status-filters,
+  .bar-actions {
     justify-content: space-between;
   }
 
-  .search-box {
-    width: 100%;
+  .bar-status-filters {
+    flex-wrap: wrap;
   }
-}
 
-/* Dialog */
-:deep(.modern-dialog .el-dialog__header) {
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
-  margin-right: 0;
-}
+  .status-btn {
+    flex: 1;
+    min-width: 60px;
+    justify-content: center;
+  }
 
-:deep(.modern-dialog .el-dialog__body) {
-  padding: 24px;
-}
+  .styles-grid {
+    grid-template-columns: 1fr;
+  }
 
-:deep(.modern-dialog .el-dialog__footer) {
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
+  .list-header,
+  .list-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .list-header span:nth-child(2),
+  .list-header span:nth-child(3),
+  .list-status,
+  .list-date {
+    display: none;
+  }
 }
 </style>
