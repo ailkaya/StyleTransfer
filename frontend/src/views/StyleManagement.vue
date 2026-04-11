@@ -18,10 +18,6 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-
-        <el-button type="primary" :icon="Plus" @click="showCreateDialog">
-          新建风格
-        </el-button>
       </div>
 
       <!-- Styles Grid -->
@@ -125,7 +121,7 @@
         </el-form-item>
 
         <el-form-item label="底座模型">
-          <el-input v-model="editForm.base_model" disabled />
+          <el-input v-model="editForm.base_model" />
         </el-form-item>
       </el-form>
 
@@ -137,45 +133,6 @@
       </template>
     </el-dialog>
 
-    <!-- Create Dialog -->
-    <el-dialog
-      v-model="createDialogVisible"
-      title="新建风格"
-      width="500px"
-    >
-      <el-form :model="createForm" label-width="80px" :rules="createRules" ref="createFormRef">
-        <el-form-item label="风格名称" prop="name">
-          <el-input v-model="createForm.name" placeholder="例如：幽默风格" />
-        </el-form-item>
-
-        <el-form-item label="风格描述">
-          <el-input
-            v-model="createForm.description"
-            type="textarea"
-            :rows="3"
-            placeholder="描述这个风格的特点..."
-          />
-        </el-form-item>
-
-        <el-form-item label="目标风格" prop="target_style">
-          <el-input v-model="createForm.target_style" placeholder="例如：幽默、学术" />
-        </el-form-item>
-
-        <el-form-item label="底座模型">
-          <el-radio-group v-model="createForm.base_model">
-            <el-radio-button label="llama-2-3b">LLaMA-2-3B</el-radio-button>
-            <el-radio-button label="chatglm3-6b">ChatGLM3-6B</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveCreate" :loading="creating">
-          创建
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -184,7 +141,6 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useStyleStore } from '@/stores/style'
 import {
   Search,
-  Plus,
   Edit,
   Delete
 } from '@element-plus/icons-vue'
@@ -206,27 +162,6 @@ const editForm = reactive({
   base_model: ''
 })
 const saving = ref(false)
-
-// Create dialog
-const createDialogVisible = ref(false)
-const createFormRef = ref(null)
-const createForm = reactive({
-  name: '',
-  description: '',
-  target_style: '',
-  base_model: 'llama-2-3b'
-})
-const creating = ref(false)
-
-const createRules = {
-  name: [
-    { required: true, message: '请输入风格名称', trigger: 'blur' },
-    { min: 2, max: 50, message: '长度在 2 到 50 个字符', trigger: 'blur' }
-  ],
-  target_style: [
-    { required: true, message: '请输入目标风格', trigger: 'blur' }
-  ]
-}
 
 const filteredStyles = computed(() => {
   let styles = styleStore.styles
@@ -303,32 +238,6 @@ async function deleteStyle(id) {
     ElMessage.success('删除成功')
   } catch (error) {
     ElMessage.error(error.message)
-  }
-}
-
-function showCreateDialog() {
-  Object.assign(createForm, {
-    name: '',
-    description: '',
-    target_style: '',
-    base_model: 'llama-2-3b'
-  })
-  createDialogVisible.value = true
-}
-
-async function saveCreate() {
-  const valid = await createFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  creating.value = true
-  try {
-    await styleStore.createStyle(createForm)
-    ElMessage.success('创建成功')
-    createDialogVisible.value = false
-  } catch (error) {
-    ElMessage.error(error.message)
-  } finally {
-    creating.value = false
   }
 }
 </script>
