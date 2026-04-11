@@ -116,6 +116,7 @@ async def create_task(
 
     new_task = Task(
         style_id=task_data.style_id,
+        name=style.name,  # 从风格获取名称
         status="PENDING",
         progress=0,
         config=config_dict,

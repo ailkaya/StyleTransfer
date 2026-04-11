@@ -23,11 +23,11 @@
           <el-option
             v-for="task in completedTasks"
             :key="task.id"
-            :label="`任务 ${task.id.slice(0, 8)}... - ${task.progress}%`"
+            :label="`${task.name || task.id}`"
             :value="task.id"
           >
             <div class="task-option">
-              <span>任务 {{ task.id.slice(0, 8) }}...</span>
+              <span>{{ task.name || '未命名' }}</span>
               <el-tag
                 :type="task.status === 'COMPLETED' ? 'success' : 'info'"
                 size="small"

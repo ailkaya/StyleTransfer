@@ -28,6 +28,7 @@ class TaskInDB(BaseModel):
 
     id: str
     style_id: str
+    name: str
     status: str
     progress: int
     config: Optional[Dict[str, Any]] = None
@@ -64,6 +65,7 @@ class TaskListItem(BaseModel):
 
     id: str
     style_id: str
+    name: str
     status: str
     progress: int
     created_at: datetime
