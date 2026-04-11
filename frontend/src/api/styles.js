@@ -39,5 +39,10 @@ export const styleApi = {
   // Clear messages
   clearMessages(styleId) {
     return client.delete(`/api/styles/${styleId}/messages`)
+  },
+
+  // Delete single message
+  deleteMessage(styleId, messageId) {
+    return client.delete(`/api/styles/${styleId}/messages/${messageId}`)
   }
 }

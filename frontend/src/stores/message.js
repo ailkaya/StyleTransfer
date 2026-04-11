@@ -88,6 +88,20 @@ export const useMessageStore = defineStore('message', () => {
     }
   }
 
+  async function deleteMessage(styleId, messageId) {
+    loading.value = true
+    error.value = null
+    try {
+      await styleApi.deleteMessage(styleId, messageId)
+      messages.value = messages.value.filter(m => m.id !== messageId)
+    } catch (err) {
+      error.value = err.message
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   function addMessage(message) {
     messages.value.push(message)
   }
@@ -106,6 +120,7 @@ export const useMessageStore = defineStore('message', () => {
     fetchMessages,
     sendMessage,
     clearMessages,
+    deleteMessage,
     addMessage,
     clearLocalMessages
   }

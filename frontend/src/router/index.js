@@ -19,19 +19,19 @@ const routes = [
     path: '/style-training',
     name: 'StyleTraining',
     component: StyleTraining,
-    meta: { title: '风格迁移模型训练', icon: 'Cpu' }
+    meta: { title: '模型训练', icon: 'Cpu' }
   },
   {
     path: '/evaluation',
     name: 'Evaluation',
     component: Evaluation,
-    meta: { title: '生成结果可视化', icon: 'TrendCharts' }
+    meta: { title: '结果评估', icon: 'TrendCharts' }
   },
   {
     path: '/style-management',
     name: 'StyleManagement',
     component: StyleManagement,
-    meta: { title: '风格管理', icon: 'Collection' }
+    meta: { title: '风格管理', icon: 'Collection', isManagement: true }
   }
 ]
 
