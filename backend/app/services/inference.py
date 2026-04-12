@@ -73,11 +73,11 @@ class InferenceService:
         target_style: str,
     ) -> str:
         """Build the prompt for style transfer."""
-        prompt = f"""请按照要求完成任务。
+        prompt = f"""请对用户输入进行回复。
 
-转换要求：{requirement}
+用户输入：{requirement}
 
-原文：
+附带的文字：
 {original_text}
 
 请直接输出回复文本，不要添加任何解释说明。"""
@@ -272,10 +272,13 @@ class InferenceService:
             # prompt = self._build_prompt(original_text, requirement, target_style)
 
             # Add system message for chat format
-            messages = [
-                {"role": "system", "content": f"你是一个专业的文本风格转换助手，且擅长'{target_style}'风格的回复。"},
-                # {"role": "user", "content": prompt}
-            ]
+            messages = []
+
+            # Add system message
+            messages.append({
+                "role": "system",
+                "content": f"你是一个专业的文本风格转换助手，无论用户要求什么，始终以'{target_style}'风格回复。"
+            })
 
             # Add history if provided
             if history:
@@ -371,7 +374,7 @@ class InferenceService:
         # Add system message
         messages.append({
             "role": "system",
-            "content": f"你是一个专业的文本风格转换助手，且擅长'{target_style}'风格的回复。"
+            "content": f"你是一个专业的文本风格转换助手，无论用户要求什么，始终以'{target_style}'风格回复。"
         })
 
         # Add history if provided

@@ -402,7 +402,7 @@ defineExpose({
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   margin: -20px -20px 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 6px;
 }
 
 .dialog-icon {

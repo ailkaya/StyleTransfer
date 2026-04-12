@@ -74,7 +74,7 @@
               <template v-if="msg.role === 'user'">
                 <div class="message-bubble user-bubble">
                   <div class="user-content">
-                    {{ msg.original_text }}
+                    {{ msg.requirement }}
                   </div>
                   <div class="message-meta">
                     <span class="message-time">{{ formatTime(msg.created_at) }}</span>
@@ -172,7 +172,7 @@
                   v-model="requirement"
                   type="textarea"
                   :rows="3"
-                  :placeholder="`转换为${currentStyle?.target_style || '目标'}风格的要求...`"
+                  :placeholder="`转化风格或续写...`"
                   resize="none"
                   class="custom-textarea"
                 />
@@ -196,7 +196,7 @@
                 class="send-button"
                 @click="sendMessage"
               >
-                转换
+                发送
               </el-button>
             </div>
           </div>
@@ -288,7 +288,6 @@ const currentStyle = computed(() =>
 
 const canSend = computed(() =>
   selectedStyleId.value &&
-  originalText.value.trim() &&
   requirement.value.trim() &&
   !messageStore.sending
 )
@@ -533,6 +532,9 @@ watch(() => messageStore.messages.length, () => {
   flex-direction: column;
   gap: 16px;
   padding: 8px 0;
+  overflow-x: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .message-wrapper {

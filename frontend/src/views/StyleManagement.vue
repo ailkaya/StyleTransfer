@@ -55,6 +55,9 @@
       </div>
 
       <div class="bar-actions">
+        <el-button v-if="searchQuery || statusFilter" link :icon="CircleClose" @click="clearFilters">
+          清除筛选
+        </el-button>
         <el-button type="primary" :icon="Plus" @click="$router.push('/style-training')">
           新建风格
         </el-button>
@@ -219,7 +222,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useStyleStore } from '@/stores/style'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -236,6 +239,7 @@ import StyleListItem from '@/components/StyleManagement/StyleListItem.vue'
 import TrainingProgressDialog from '@/components/StyleManagement/TrainingProgressDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 const styleStore = useStyleStore()
 
 const searchQuery = ref('')
@@ -321,6 +325,10 @@ function stopPolling() {
 }
 
 onMounted(() => {
+  // Check for search query from route
+  if (route.query.search) {
+    searchQuery.value = route.query.search
+  }
   startPolling()
 })
 

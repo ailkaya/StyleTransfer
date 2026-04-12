@@ -59,8 +59,22 @@ export const useMessageStore = defineStore('message', () => {
       }
       messages.value.push(userMessage)
 
-      // Call API
-      const response = await styleApi.sendMessage(styleId, data)
+      // Build history from previous messages (exclude the one just added)
+      const history = messages.value
+        .filter(m => m.style_id === styleId && m.id !== userMessage.id)
+        .map(m => ({
+          role: m.role,
+          content: `metioned_text：${m.original_text},user_input:${m.requirement}`
+        }))
+
+      console.log('History:', history)
+      // return null
+
+      // Call API with history
+      const response = await styleApi.sendMessage(styleId, {
+        ...data,
+        history: history.length > 0 ? history : undefined
+      })
 
       // Add assistant response
       messages.value.push(response.data.message)
@@ -92,7 +106,14 @@ export const useMessageStore = defineStore('message', () => {
     loading.value = true
     error.value = null
     try {
-      await styleApi.deleteMessage(styleId, messageId)
+      // Check if messageId is a valid UUID format
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId)
+
+      if (isValidUUID) {
+        // Only call API for server-side messages
+        await styleApi.deleteMessage(styleId, messageId)
+      }
+      // Remove from local store (works for both temp and server messages)
       messages.value = messages.value.filter(m => m.id !== messageId)
     } catch (err) {
       error.value = err.message

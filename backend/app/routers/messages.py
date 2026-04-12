@@ -215,3 +215,52 @@ async def clear_messages(
         data={"style_id": style_id, "deleted_count": deleted_count},
         timestamp=datetime.utcnow(),
     )
+
+
+@router.delete("/{style_id}/messages/{message_id}", response_model=Response)
+async def delete_message(
+    style_id: str,
+    message_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single message."""
+    logger.info(f"Deleting message: {message_id} for style: {style_id}")
+
+    # Verify style exists
+    result = await db.execute(
+        select(Style).where(Style.id == style_id)
+    )
+    style = result.scalar_one_or_none()
+
+    if not style:
+        logger.warning(f"Style not found: {style_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Style with id '{style_id}' not found"
+        )
+
+    # Find the message
+    result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.style_id == style_id)
+    )
+    message = result.scalar_one_or_none()
+
+    if not message:
+        logger.warning(f"Message not found: {message_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Message with id '{message_id}' not found"
+        )
+
+    # Delete the message
+    await db.delete(message)
+    await db.commit()
+
+    logger.info(f"Message {message_id} deleted successfully")
+
+    return Response(
+        code=200,
+        message="Message deleted successfully",
+        data={"style_id": style_id, "message_id": message_id},
+        timestamp=datetime.utcnow(),
+    )

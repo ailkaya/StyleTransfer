@@ -15,7 +15,7 @@ class ChatMessage(BaseModel):
 class MessageCreate(BaseModel):
     """Schema for creating a new message (style transfer request)."""
 
-    original_text: str = Field(..., min_length=1, description="原文内容")
+    original_text: str = Field(default="", description="原文内容")
     requirement: str = Field(..., min_length=1, description="转换需求")
     history: Optional[List[ChatMessage]] = Field(default=None, description="历史对话")
 

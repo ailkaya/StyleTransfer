@@ -516,8 +516,11 @@ async function startTraining() {
 
     ElMessage.success('训练任务已创建')
 
-    // Redirect to style management page after successful creation
-    router.push('/style-management')
+    // Redirect to style management page after successful creation, with style name for search
+    router.push({
+      path: '/style-management',
+      query: { search: style.name }
+    })
 
   } catch (error) {
     ElMessage.error(error.message)
