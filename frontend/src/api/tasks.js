@@ -21,10 +21,8 @@ export const taskApi = {
     return client.get(`/api/tasks/${id}/logs`, { params })
   },
 
-  // Get evaluation HTML
+  // Get evaluation data
   getEvaluation(id) {
-    return client.get(`/api/tasks/${id}/evaluation`, {
-      responseType: 'text'
-    })
+    return client.get(`/api/tasks/${id}/evaluation`)
   }
 }

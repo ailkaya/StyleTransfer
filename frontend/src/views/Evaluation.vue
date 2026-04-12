@@ -33,7 +33,7 @@
             >
               <div class="task-status-icon" :class="getStatusClass(task.status)">
                 <el-icon v-if="task.status === 'COMPLETED'" :size="16"><Check /></el-icon>
-                <el-icon v-else :size="16"><Close /></el-icon>
+                <el-icon v-else><Close /></el-icon>
               </div>
 
               <div class="task-info">
@@ -59,90 +59,12 @@
 
       <!-- Right Panel: Evaluation Result -->
       <div class="result-panel">
-        <div v-if="selectedTaskId" v-loading="loading" class="result-card">
-          <div class="result-header">
-            <div class="header-left">
-              <h2>{{ currentTask?.name || '评估报告' }}</h2>
-              <div class="task-tags">
-                <el-tag size="small" type="success" effect="light">
-                  <el-icon><Check /></el-icon>
-                  已完成
-                </el-tag>
-                <el-tag size="small" type="info" effect="light">
-                  {{ formatDate(currentTask?.completed_at) }}
-                </el-tag>
-              </div>
-            </div>
-            <div class="header-actions">
-              <el-button :icon="Refresh" circle @click="loadEvaluation" />
-              <el-button :icon="Download" circle title="导出报告" />
-            </div>
-          </div>
-
-          <!-- Quick Stats -->
-          <div class="stats-row">
-            <div class="stat-card">
-              <div class="stat-icon"><el-icon><TrendCharts /></el-icon></div>
-              <div class="stat-data">
-                <span class="stat-label">最终Loss</span>
-                <span class="stat-value">{{ currentTask?.current_loss?.toFixed(4) || '0.1234' }}</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon time"><el-icon><Timer /></el-icon></div>
-              <div class="stat-data">
-                <span class="stat-label">训练时长</span>
-                <span class="stat-value">{{ formatDuration(currentTask?.elapsed_time) }}</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon epochs"><el-icon><CircleCheck /></el-icon></div>
-              <div class="stat-data">
-                <span class="stat-label">训练轮数</span>
-                <span class="stat-value">{{ currentTask?.total_epochs || 3 }}</span>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon score"><el-icon><Star /></el-icon></div>
-              <div class="stat-data">
-                <span class="stat-label">模型评分</span>
-                <span class="stat-value">92.5</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Evaluation Content -->
-          <div class="evaluation-content">
-            <iframe
-              v-if="evaluationHtml"
-              :srcdoc="evaluationHtml"
-              class="evaluation-iframe"
-              sandbox="allow-same-origin"
-            />
-
-            <div v-else class="evaluation-placeholder">
-              <div class="placeholder-content">
-                <el-icon :size="64" color="#cbd5e1"><DataAnalysis /></el-icon>
-                <h3>评估报告准备中</h3>
-                <p>详细的评估指标和可视化图表将在此显示</p>
-
-                <div class="placeholder-features">
-                  <div class="feature">
-                    <el-icon><TrendCharts /></el-icon>
-                    <span>训练曲线</span>
-                  </div>
-                  <div class="feature">
-                    <el-icon><PieChart /></el-icon>
-                    <span>指标分布</span>
-                  </div>
-                  <div class="feature">
-                    <el-icon><Document /></el-icon>
-                    <span>文本对比</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div v-if="selectedTaskId" v-loading="loading">
+          <EvaluationReport
+            v-if="evaluationData"
+            :data="evaluationData"
+            @refresh="loadEvaluation"
+          />
         </div>
 
         <div v-else class="empty-result">
@@ -161,6 +83,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useTaskStore } from '@/stores/task'
 import { ElMessage } from 'element-plus'
+import EvaluationReport from '@/components/Evaluation/EvaluationReport.vue'
 import {
   DataLine,
   List,
@@ -168,14 +91,6 @@ import {
   Close,
   ArrowRight,
   Document,
-  Refresh,
-  Download,
-  TrendCharts,
-  Timer,
-  CircleCheck,
-  Star,
-  DataAnalysis,
-  PieChart,
   Select
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -183,16 +98,10 @@ import dayjs from 'dayjs'
 const taskStore = useTaskStore()
 
 const selectedTaskId = ref('')
-const evaluationHtml = ref('')
+const evaluationData = ref(null)
 const loading = ref(false)
 
-const completedTasks = computed(() =>
-  taskStore.completedTasks
-)
-
-const currentTask = computed(() =>
-  taskStore.tasks.find(t => t.id === selectedTaskId.value)
-)
+const completedTasks = computed(() => taskStore.completedTasks)
 
 onMounted(async () => {
   await taskStore.fetchTasks()
@@ -207,9 +116,12 @@ async function loadEvaluation() {
   if (!selectedTaskId.value) return
 
   loading.value = true
+  evaluationData.value = null
   try {
-    const html = await taskStore.fetchEvaluation(selectedTaskId.value)
-    evaluationHtml.value = html
+    const response = await taskStore.fetchEvaluation(selectedTaskId.value)
+    if (response.data) {
+      evaluationData.value = response.data
+    }
   } catch (error) {
     ElMessage.error('加载评估报告失败: ' + error.message)
   } finally {
@@ -224,21 +136,6 @@ function getStatusClass(status) {
 function formatTime(time) {
   if (!time) return '-'
   return dayjs(time).format('MM-DD HH:mm')
-}
-
-function formatDate(time) {
-  if (!time) return '-'
-  return dayjs(time).format('YYYY-MM-DD HH:mm')
-}
-
-function formatDuration(seconds) {
-  if (!seconds) return '-'
-  const mins = Math.floor(seconds / 60)
-  const hrs = Math.floor(mins / 60)
-  if (hrs > 0) {
-    return `${hrs}h ${mins % 60}m`
-  }
-  return `${mins}m`
 }
 </script>
 
@@ -415,169 +312,6 @@ function formatDuration(seconds) {
   min-height: 600px;
 }
 
-.result-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
-  overflow: hidden;
-}
-
-.result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.header-left h2 {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 8px;
-}
-
-.task-tags {
-  display: flex;
-  gap: 8px;
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-/* Stats Row */
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  padding: 20px 24px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-}
-
-.stat-icon {
-  width: 44px;
-  height: 44px;
-  background: rgba(102, 126, 234, 0.1);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary-color);
-  font-size: 20px;
-}
-
-.stat-icon.time {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--warning-color);
-}
-
-.stat-icon.epochs {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--success-color);
-}
-
-.stat-icon.score {
-  background: rgba(139, 92, 246, 0.1);
-  color: #8b5cf6;
-}
-
-.stat-data {
-  display: flex;
-  flex-direction: column;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-top: 2px;
-}
-
-/* Evaluation Content */
-.evaluation-content {
-  padding: 24px;
-  min-height: 400px;
-}
-
-.evaluation-iframe {
-  width: 100%;
-  height: 600px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-}
-
-.evaluation-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  border: 2px dashed var(--border-color);
-}
-
-.placeholder-content {
-  text-align: center;
-}
-
-.placeholder-content h3 {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 20px 0 8px;
-}
-
-.placeholder-content p {
-  color: var(--text-secondary);
-  margin: 0 0 32px;
-}
-
-.placeholder-features {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-}
-
-.feature {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.feature .el-icon {
-  width: 48px;
-  height: 48px;
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-}
-
 /* Empty Result */
 .empty-result {
   display: flex;
@@ -612,10 +346,6 @@ function formatDuration(seconds) {
   .evaluation-layout {
     grid-template-columns: 280px 1fr;
   }
-
-  .stats-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 @media (max-width: 992px) {
@@ -629,12 +359,6 @@ function formatDuration(seconds) {
 
   .task-list {
     max-height: 300px;
-  }
-}
-
-@media (max-width: 768px) {
-  .stats-row {
-    grid-template-columns: 1fr;
   }
 }
 </style>

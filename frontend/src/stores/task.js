@@ -98,6 +98,7 @@ export const useTaskStore = defineStore('task', () => {
     console.log('[TaskStore] Fetching evaluation for task:', id)
     try {
       const response = await taskApi.getEvaluation(id)
+      console.log('[TaskStore] Fetched evaluation, overall score:', response.data?.overall_score)
       return response
     } catch (err) {
       console.error('[TaskStore] Failed to fetch evaluation:', err.message)

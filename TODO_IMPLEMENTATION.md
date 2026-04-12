@@ -86,7 +86,44 @@ def generate_evaluation_report(task_id: str) -> str:
 
 ---
 
-### 4. 文本预处理
+### 4. 评估文本生成 → 本地模型推理
+
+**文件位置**: `backend/app/services/evaluation.py` - `generate_transferred_texts()`
+
+**当前实现**: 调用外部LLM API生成风格转换后的文本用于评估
+
+**后续实现**: 使用本地QLoRA微调后的模型进行推理
+
+**替换说明**:
+```python
+# v0.1 - 调用外部API生成评估样本
+def generate_transferred_texts(
+    inference_service,
+    source_texts: List[str],
+    target_style: str
+) -> Tuple[List[str], List[float]]:
+    # 遍历source_texts，调用inference_service.generate_style_transfer()
+    # 该服务目前调用外部LLM API
+    # TODO: 后续替换为本地模型推理
+    pass
+
+# v0.2+ - 本地模型推理
+def generate_transferred_texts(
+    model_path: str,
+    source_texts: List[str],
+    target_style: str
+) -> Tuple[List[str], List[float]]:
+    # 1. 从task.result_path加载本地Adapter
+    # 2. 加载基础模型
+    # 3. 应用LoRA配置
+    # 4. 批量推理生成转换文本
+    # 5. 返回结果和推理时间
+    pass
+```
+
+---
+
+### 5. 文本预处理
 
 **文件位置**: `backend/app/services/preprocessing.py`
 
@@ -111,6 +148,7 @@ def generate_evaluation_report(task_id: str) -> str:
 | P0 | QLoRA训练 | 2周 | 需要GPU环境 |
 | P1 | 本地推理 | 3天 | 依赖训练模块完成 |
 | P1 | 评估指标 | 1周 | 需要确定评估标准 |
+| P1 | 评估文本生成 | 2天 | 依赖本地推理模块完成 |
 | P2 | 文档解析 | 2天 | 无 |
 
 ## 配置扩展点
