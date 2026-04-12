@@ -77,7 +77,7 @@ class TrainingService:
             # Simulate progress through the epoch
             steps = 10
             for step in range(steps):
-                time.sleep(0.5)  # Simulate work
+                time.sleep(3)  # Simulate work
 
                 # Calculate overall progress
                 epoch_progress = (step + 1) / steps

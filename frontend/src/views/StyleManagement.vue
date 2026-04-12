@@ -55,21 +55,6 @@
       </div>
 
       <div class="bar-actions">
-        <!-- View Toggle -->
-        <div class="view-toggle">
-          <button
-            :class="['toggle-btn', { active: viewMode === 'grid' }]"
-            @click="viewMode = 'grid'"
-          >
-            <el-icon><Grid /></el-icon>
-          </button>
-          <button
-            :class="['toggle-btn', { active: viewMode === 'list' }]"
-            @click="viewMode = 'list'"
-          >
-            <el-icon><List /></el-icon>
-          </button>
-        </div>
         <el-button type="primary" :icon="Plus" @click="$router.push('/style-training')">
           新建风格
         </el-button>
@@ -78,126 +63,24 @@
 
     <!-- Main Content -->
     <div class="management-content">
-      <!-- Grid View -->
-      <div v-if="viewMode === 'grid' && filteredStyles.length > 0" v-loading="styleStore.loading" class="styles-grid">
-        <div
-          v-for="(style, index) in filteredStyles"
-          :key="style.id"
-          class="style-card"
-          :class="[getStatusClass(style.status), { 'new-card': index < 3 }]"
-          :style="{ animationDelay: `${index * 0.05}s` }"
-        >
-          <div class="card-header">
-            <div class="header-status" :class="style.status">
-              <span class="status-indicator"></span>
-              <span class="status-text">{{ getStatusLabel(style.status) }}</span>
-            </div>
-            <div class="header-actions">
-              <el-button
-                link
-                :icon="Edit"
-                :disabled="style.status === 'training' || style.status === 'evaluating'"
-                @click="editStyle(style)"
-              />
-              <el-button
-                link
-                type="danger"
-                :icon="Delete"
-                :disabled="style.status === 'training' || style.status === 'evaluating'"
-                @click="confirmDelete(style)"
-              />
-            </div>
-          </div>
-
-          <div class="card-body" @click="viewStyleDetail(style)">
-            <div class="style-icon" :class="style.status">
-              <el-icon :size="28"><Collection /></el-icon>
-            </div>
-            <h3 class="style-name">{{ style.name }}</h3>
-            <p class="style-target">{{ style.target_style }}</p>
-            <p class="style-description">{{ style.description || '暂无描述' }}</p>
-          </div>
-
-          <div class="card-footer">
-            <span class="footer-meta">
-              <el-icon><Calendar /></el-icon>
-              {{ formatTime(style.created_at) }}
-            </span>
-            <el-button
-              v-if="isStyleAvailable(style.status)"
-              type="primary"
-              size="small"
-              @click="viewStyleDetail(style)"
-            >
-              使用
-            </el-button>
-            <el-button
-              v-else
-              type="primary"
-              size="small"
-              disabled
-            >
-              {{ getStatusLabel(style.status) }}
-            </el-button>
-          </div>
-        </div>
-      </div>
-
       <!-- List View -->
-      <div v-else-if="viewMode === 'list' && filteredStyles.length > 0" v-loading="styleStore.loading" class="styles-list">
+      <div v-if="filteredStyles.length > 0" v-loading="styleStore.loading" class="styles-list">
         <div class="list-header">
           <span>风格信息</span>
           <span>状态</span>
           <span>创建时间</span>
           <span>操作</span>
         </div>
-        <div
+        <StyleListItem
           v-for="(style, index) in filteredStyles"
           :key="style.id"
-          class="list-row"
-          :class="getStatusClass(style.status)"
-          :style="{ animationDelay: `${index * 0.03}s` }"
-        >
-          <div class="list-info" @click="viewStyleDetail(style)">
-            <div class="list-icon" :class="style.status">
-              <el-icon><Collection /></el-icon>
-            </div>
-            <div class="list-text">
-              <span class="list-name">{{ style.name }}</span>
-              <span class="list-target">{{ style.target_style }}</span>
-            </div>
-          </div>
-
-          <div class="list-status" :class="style.status">
-            <span class="status-indicator"></span>
-            <span>{{ getStatusLabel(style.status) }}</span>
-          </div>
-
-          <div class="list-date">
-            {{ formatTime(style.created_at) }}
-          </div>
-
-          <div class="list-actions">
-            <el-button
-              link
-              type="primary"
-              :icon="Edit"
-              :disabled="style.status === 'training' || style.status === 'evaluating'"
-              @click="editStyle(style)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              link
-              type="danger"
-              :icon="Delete"
-              :disabled="style.status === 'training' || style.status === 'evaluating'"
-              @click="confirmDelete(style)"
-            >
-              删除
-            </el-button>
-          </div>
-        </div>
+          :style="style"
+          :animation-delay="index * 0.03"
+          @click="viewStyleDetail"
+          @edit="editStyle"
+          @delete="confirmDelete"
+          @viewProgress="openProgressDialog"
+        />
       </div>
 
       <!-- Empty State -->
@@ -323,11 +206,19 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- Training Progress Dialog -->
+    <TrainingProgressDialog
+      v-model:visible="progressDialogVisible"
+      :style-id="selectedStyle?.id"
+      :style-name="selectedStyle?.name"
+      :style-status="selectedStyle?.status"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStyleStore } from '@/stores/style'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -335,17 +226,14 @@ import {
   Collection,
   Search,
   Edit,
-  Delete,
   Check,
-  Calendar,
-  Grid,
-  List,
   CircleClose,
   Plus,
   Document,
   Star
 } from '@element-plus/icons-vue'
-import dayjs from 'dayjs'
+import StyleListItem from '@/components/StyleManagement/StyleListItem.vue'
+import TrainingProgressDialog from '@/components/StyleManagement/TrainingProgressDialog.vue'
 
 const router = useRouter()
 const styleStore = useStyleStore()
@@ -353,7 +241,6 @@ const styleStore = useStyleStore()
 const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(12)
-const viewMode = ref('grid')
 const editDialogVisible = ref(false)
 const saving = ref(false)
 const isSearchFocused = ref(false)
@@ -365,6 +252,10 @@ const editForm = reactive({
   description: '',
   target_style: ''
 })
+
+// Progress dialog state
+const progressDialogVisible = ref(false)
+const selectedStyle = ref(null)
 
 const filteredTotal = computed(() => {
   let count = styleStore.styles.length
@@ -409,41 +300,33 @@ function clearFilters() {
   currentPage.value = 1
 }
 
-onMounted(() => {
+// Polling for style updates every 5 seconds
+let pollInterval = null
+
+function startPolling() {
+  // Fetch immediately
   styleStore.fetchStyles({ page_size: 100 })
+
+  // Then poll every 5 seconds
+  pollInterval = setInterval(() => {
+    styleStore.fetchStyles({ page_size: 100 })
+  }, 5000)
+}
+
+function stopPolling() {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
+}
+
+onMounted(() => {
+  startPolling()
 })
 
-function getStatusClass(status) {
-  const classes = {
-    'pending': 'status-pending',
-    'training': 'status-training',
-    'completed': 'status-completed',
-    'failed': 'status-failed',
-    'available': 'status-available',
-    'evaluating': 'status-evaluating'
-  }
-  return classes[status] || 'status-pending'
-}
-
-function getStatusLabel(status) {
-  const labels = {
-    'pending': '待训练',
-    'training': '训练中',
-    'completed': '已完成',
-    'failed': '失败',
-    'available': '可用',
-    'evaluating': '评估中'
-  }
-  return labels[status] || status
-}
-
-function isStyleAvailable(status) {
-  return status === 'available'
-}
-
-function formatTime(time) {
-  return dayjs(time).format('YYYY-MM-DD HH:mm')
-}
+onUnmounted(() => {
+  stopPolling()
+})
 
 function viewStyleDetail(style) {
   router.push({
@@ -493,6 +376,11 @@ async function confirmDelete(style) {
       ElMessage.error(error.message)
     }
   }
+}
+
+function openProgressDialog(style) {
+  selectedStyle.value = style
+  progressDialogVisible.value = true
 }
 </script>
 
@@ -647,247 +535,11 @@ async function confirmDelete(style) {
   background: #f59e0b;
 }
 
-/* View Toggle */
-.view-toggle {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-secondary);
-  padding: 4px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-}
-
-.toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.toggle-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-card);
-}
-
-.toggle-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
 /* Main Content */
 .management-content {
   flex: 1;
   overflow-y: auto;
   padding: 0 4px;
-}
-
-/* Grid View */
-.styles-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.style-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  overflow: hidden;
-  transition: all 0.3s ease;
-  animation: fadeInUp 0.4s ease forwards;
-  opacity: 0;
-  transform: translateY(10px);
-  display: flex;
-  flex-direction: column;
-}
-
-@keyframes fadeInUp {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.style-card:hover {
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
-  border-color: rgba(102, 126, 234, 0.3);
-}
-
-.style-card.status-available {
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.style-card.status-available:hover {
-  border-color: #10b981;
-}
-
-.style-card.status-training {
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-.style-card.status-evaluating {
-  border-color: rgba(139, 92, 246, 0.3);
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.header-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.header-status .status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.header-status.available {
-  color: #059669;
-}
-
-.header-status.available .status-indicator {
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
-}
-
-.header-status.training {
-  color: #d97706;
-}
-
-.header-status.training .status-indicator {
-  background: #f59e0b;
-  box-shadow: 0 0 8px #f59e0b;
-}
-
-.header-status.evaluating {
-  color: #7c3aed;
-}
-
-.header-status.evaluating .status-indicator {
-  background: #8b5cf6;
-  box-shadow: 0 0 8px #8b5cf6;
-}
-
-.header-status.pending {
-  color: #64748b;
-}
-
-.header-status.pending .status-indicator {
-  background: #94a3b8;
-}
-
-.header-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.card-body {
-  flex: 1;
-  padding: 20px 16px;
-  text-align: center;
-  cursor: pointer;
-}
-
-.style-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-  font-size: 28px;
-  color: white;
-  transition: all 0.3s ease;
-}
-
-.style-icon.available {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
-}
-
-.style-icon.training {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3);
-}
-
-.style-icon.pending {
-  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
-  box-shadow: 0 8px 20px rgba(148, 163, 184, 0.3);
-}
-
-.style-icon.evaluating {
-  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
-  box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
-}
-
-.style-card:hover .style-icon {
-  transform: scale(1.05);
-}
-
-.style-name {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.style-target {
-  font-size: 13px;
-  color: #667eea;
-  font-weight: 600;
-  margin: 0 0 10px;
-}
-
-.style-description {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.5;
-  height: 40px;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
-}
-
-.footer-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 /* List View */
@@ -900,7 +552,7 @@ async function confirmDelete(style) {
 
 .list-header {
   display: grid;
-  grid-template-columns: 2fr 100px 140px 140px;
+  grid-template-columns: 1.5fr 85px 120px 210px;
   gap: 16px;
   padding: 12px 20px;
   background: var(--bg-secondary);
@@ -910,146 +562,6 @@ async function confirmDelete(style) {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.list-row {
-  display: grid;
-  grid-template-columns: 2fr 100px 140px 140px;
-  gap: 16px;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-  animation: slideIn 0.3s ease forwards;
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-@keyframes slideIn {
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.list-row:last-child {
-  border-bottom: none;
-}
-
-.list-row:hover {
-  background: rgba(102, 126, 234, 0.03);
-}
-
-.list-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-}
-
-.list-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.list-icon.available {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-}
-
-.list-icon.training {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-}
-
-.list-icon.pending {
-  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
-}
-
-.list-icon.evaluating {
-  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
-}
-
-.list-text {
-  min-width: 0;
-}
-
-.list-name {
-  display: block;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.list-target {
-  font-size: 12px;
-  color: #667eea;
-  font-weight: 500;
-}
-
-.list-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.list-status.available {
-  color: #059669;
-}
-
-.list-status.training {
-  color: #d97706;
-}
-
-.list-status.pending {
-  color: #64748b;
-}
-
-.list-status.evaluating {
-  color: #7c3aed;
-}
-
-.list-status.evaluating .status-indicator {
-  background: #8b5cf6;
-  box-shadow: 0 0 6px #8b5cf6;
-}
-
-.list-status .status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.list-status.available .status-indicator {
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-}
-
-.list-status.training .status-indicator {
-  background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
-}
-
-.list-date {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.list-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
 }
 
 /* Empty State */
@@ -1300,19 +812,12 @@ async function confirmDelete(style) {
     justify-content: center;
   }
 
-  .styles-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .list-header,
-  .list-row {
-    grid-template-columns: 1fr auto;
+  .list-header {
+    grid-template-columns: 1fr 210px;
   }
 
   .list-header span:nth-child(2),
-  .list-header span:nth-child(3),
-  .list-status,
-  .list-date {
+  .list-header span:nth-child(3) {
     display: none;
   }
 }

@@ -302,7 +302,7 @@
         </div>
       </div>
 
-      <!-- Right: Preview Card -->
+      <!-- Right: Preview Card (Removed ProgressMonitor as we now redirect to style management) -->
       <div class="preview-panel">
         <div class="preview-card">
           <div class="preview-header">
@@ -345,12 +345,6 @@
       </div>
     </div>
 
-    <!-- Progress Monitor -->
-    <ProgressMonitor
-      v-if="currentTask"
-      :task="currentTask"
-      @close="currentTask = null"
-    />
   </div>
 </template>
 
@@ -376,8 +370,6 @@ import {
   Timer,
   QuestionFilled
 } from '@element-plus/icons-vue'
-import ProgressMonitor from '@/components/Training/ProgressMonitor.vue'
-
 const router = useRouter()
 const styleStore = useStyleStore()
 const taskStore = useTaskStore()
@@ -385,7 +377,6 @@ const taskStore = useTaskStore()
 const currentStep = ref(0)
 const formRef = ref(null)
 const loading = ref(false)
-const currentTask = ref(null)
 
 const steps = [
   { key: 'basic', label: '基本信息' },
@@ -521,10 +512,12 @@ async function startTraining() {
       training_text: form.training_text,
       config: form.config
     }
-    const task = await taskStore.createTask(taskData)
+    await taskStore.createTask(taskData)
 
     ElMessage.success('训练任务已创建')
-    currentTask.value = task
+
+    // Redirect to style management page after successful creation
+    router.push('/style-management')
 
   } catch (error) {
     ElMessage.error(error.message)

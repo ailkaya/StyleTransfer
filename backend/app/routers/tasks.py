@@ -132,49 +132,22 @@ async def create_task(
     logger.info(f"Training text length: {len(task_data.training_text)} chars")
 
     # Start Celery task
+    # Start Celery task - skip blocking checks on Windows
     logger.info(f"Starting Celery task for task_id={new_task.id}")
     try:
-        import time
-        import asyncio
-        celery_start = time.time()
-
-        # Check if Celery is available (run in thread pool to avoid blocking)
-        from ..celery_app.tasks import celery_app
-
-        def check_celery_workers():
-            """Sync function to check Celery workers."""
-            try:
-                inspect = celery_app.control.inspect()
-                return inspect.ping()
-            except Exception as e:
-                logger.warning(f"Failed to inspect Celery workers: {e}")
-                return None
-
-        # Run blocking Celery inspect in thread pool
-        workers = await asyncio.to_thread(check_celery_workers)
-        if not workers:
-            logger.warning("No Celery workers detected! Task will be queued but may not process.")
-        else:
-            logger.info(f"Celery workers available: {list(workers.keys())}")
-
+        # Note: delay() may block on Windows if Redis is unreachable
+        # We accept this risk as the task record is already created in DB
         celery_job = train_style_model.delay(
             task_id=str(new_task.id),
             style_id=task_data.style_id,
             training_text=task_data.training_text,
             config=config_dict,
         )
-        celery_elapsed = time.time() - celery_start
-        logger.info(f"Celery task started successfully: job_id={celery_job.id} in {celery_elapsed:.3f}s")
-
-        if celery_elapsed > 5:
-            logger.warning(f"Celery task dispatch took {celery_elapsed:.1f}s - this may indicate a problem")
-
+        logger.info(f"Celery task dispatched: job_id={celery_job.id}")
     except Exception as e:
-        logger.error(f"Failed to start Celery task: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start training task: {str(e)}"
-        )
+        logger.error(f"Failed to dispatch Celery task: {e}")
+        # Don't fail the request - the task is created in DB and can be retried manually
+        # Or picked up by Celery worker when it becomes available
 
     return Response(
         code=201,

@@ -405,6 +405,7 @@ class EvaluationService:
         Returns:
             Dictionary with sample evaluation data
         """
+        time.sleep(20)
         return {
             "task_id": task_id,
             "task_name": "示例风格任务",
