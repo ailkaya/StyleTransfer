@@ -29,10 +29,5 @@ export const taskApi = {
   // Get task logs
   getLogs(id, params = {}) {
     return client.get(`/api/tasks/${id}/logs`, { params })
-  },
-
-  // Get evaluation data
-  getEvaluation(id) {
-    return client.get(`/api/tasks/${id}/evaluation`)
   }
 }

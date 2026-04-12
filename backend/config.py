@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FILE: Optional[str] = None
 
+    # Evaluation
+    EVALUATION_SAMPLE_COUNT: int = 5
+    EVALUATION_MOCK_DELAY: int = 20
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { taskApi } from '@/api/tasks'
+import { evaluationApi } from '@/api/evaluation'
 
 export const useTaskStore = defineStore('task', () => {
   // State
@@ -96,11 +97,35 @@ export const useTaskStore = defineStore('task', () => {
   async function fetchEvaluation(id) {
     console.log('[TaskStore] Fetching evaluation for task:', id)
     try {
-      const response = await taskApi.getEvaluation(id)
+      const response = await evaluationApi.getEvaluation(id)
       console.log('[TaskStore] Fetched evaluation, overall score:', response.data?.overall_score)
       return response
     } catch (err) {
       console.error('[TaskStore] Failed to fetch evaluation:', err.message)
+      throw err
+    }
+  }
+
+  async function submitComment(taskId, comment) {
+    console.log('[TaskStore] Submitting comment for task:', taskId)
+    try {
+      const response = await evaluationApi.submitComment(taskId, comment)
+      console.log('[TaskStore] Comment submitted successfully')
+      return response
+    } catch (err) {
+      console.error('[TaskStore] Failed to submit comment:', err.message)
+      throw err
+    }
+  }
+
+  async function updateComment(taskId, comment) {
+    console.log('[TaskStore] Updating comment for task:', taskId)
+    try {
+      const response = await evaluationApi.updateComment(taskId, comment)
+      console.log('[TaskStore] Comment updated successfully')
+      return response
+    } catch (err) {
+      console.error('[TaskStore] Failed to update comment:', err.message)
       throw err
     }
   }
@@ -130,6 +155,8 @@ export const useTaskStore = defineStore('task', () => {
     createTask,
     fetchTaskLogs,
     fetchEvaluation,
+    submitComment,
+    updateComment,
     updateTaskProgress
   }
 })

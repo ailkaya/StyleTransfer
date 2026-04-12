@@ -137,6 +137,61 @@
       </div>
     </div>
 
+    <!-- User Comment Section -->
+    <div class="comment-section">
+      <div class="section-title">
+        <el-icon><ChatDotRound /></el-icon>
+        <span>用户评价</span>
+      </div>
+
+      <!-- View Mode: Show existing comment -->
+      <div v-if="data.comment && !isEditing" class="comment-display">
+        <div class="comment-content">
+          <el-icon :size="18" color="#667eea"><ChatDotRound /></el-icon>
+          <p class="comment-text">{{ data.comment }}</p>
+        </div>
+        <el-button
+          type="primary"
+          link
+          :icon="Edit"
+          @click="startEdit"
+        >
+          修改评价
+        </el-button>
+      </div>
+
+      <!-- Edit Mode: Input form -->
+      <div v-else class="comment-form">
+        <el-input
+          v-model="commentText"
+          type="textarea"
+          :rows="4"
+          placeholder="请输入您对本次训练结果的评价（如：模型效果、改进建议等）"
+          maxlength="2000"
+          show-word-limit
+          :disabled="submitting"
+        />
+        <div class="comment-actions">
+          <el-button
+            v-if="data.comment"
+            @click="cancelEdit"
+            :disabled="submitting"
+          >
+            取消
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="submitting"
+            :disabled="!commentText.trim()"
+            @click="submitComment"
+          >
+            <el-icon><Check /></el-icon>
+            {{ data.comment ? '保存修改' : '提交评价' }}
+          </el-button>
+        </div>
+      </div>
+    </div>
+
     <!-- Sample Comparisons -->
     <div v-if="data.samples?.length" class="samples-section">
       <div class="section-title">
@@ -182,6 +237,7 @@
 </template>
 
 <script setup>
+import { ref, watch } from 'vue'
 import {
   Check,
   Refresh,
@@ -190,10 +246,16 @@ import {
   Reading,
   EditPen,
   Right,
-  Timer
+  Timer,
+  ChatDotRound,
+  Edit
 } from '@element-plus/icons-vue'
+import { useTaskStore } from '@/stores/task'
+import { ElMessage } from 'element-plus'
 
-defineProps({
+const taskStore = useTaskStore()
+
+const props = defineProps({
   data: {
     type: Object,
     required: true,
@@ -210,12 +272,65 @@ defineProps({
       vocab_diversity: 0,
       length_ratio: 0,
       avg_response_time: 0,
-      samples: []
+      samples: [],
+      comment: null
     })
   }
 })
 
-defineEmits(['refresh'])
+const emit = defineEmits(['refresh', 'commentSubmitted'])
+
+// Comment state
+const commentText = ref('')
+const isEditing = ref(false)
+const submitting = ref(false)
+
+// Watch for data changes to sync comment text
+watch(() => props.data.comment, (newComment) => {
+  if (newComment && !isEditing.value) {
+    commentText.value = newComment
+  }
+}, { immediate: true })
+
+function startEdit() {
+  commentText.value = props.data.comment || ''
+  isEditing.value = true
+}
+
+function cancelEdit() {
+  isEditing.value = false
+  commentText.value = props.data.comment || ''
+}
+
+async function submitComment() {
+  const trimmedComment = commentText.value.trim()
+  if (!trimmedComment) {
+    ElMessage.warning('请输入评价内容')
+    return
+  }
+
+  submitting.value = true
+  try {
+    const taskId = props.data.task_id
+    if (props.data.comment) {
+      // Update existing comment
+      await taskStore.updateComment(taskId, trimmedComment)
+      ElMessage.success('评价已更新')
+    } else {
+      // Submit new comment
+      await taskStore.submitComment(taskId, trimmedComment)
+      ElMessage.success('评价已提交')
+    }
+
+    isEditing.value = false
+    emit('commentSubmitted', { taskId, comment: trimmedComment })
+  } catch (error) {
+    ElMessage.error(props.data.comment ? '更新评价失败' : '提交评价失败')
+    console.log(error)
+  } finally {
+    submitting.value = false
+  }
+}
 
 function getScoreClass(score) {
   if (score >= 80) return 'excellent'
@@ -541,6 +656,56 @@ function getScoreClass(score) {
   color: var(--text-secondary);
 }
 
+/* Comment Section */
+.comment-section {
+  padding: 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.02) 0%, rgba(139, 92, 246, 0.02) 100%);
+}
+
+.comment-display {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.comment-content {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.comment-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.comment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.comment-actions .el-button--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .metrics-grid {
@@ -550,6 +715,10 @@ function getScoreClass(score) {
   .score-main-card {
     flex-direction: column;
     text-align: center;
+  }
+
+  .comment-display {
+    flex-direction: column;
   }
 }
 

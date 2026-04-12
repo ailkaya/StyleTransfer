@@ -64,6 +64,7 @@
             v-if="evaluationData"
             :data="evaluationData"
             @refresh="loadEvaluation"
+            @commentSubmitted="handleCommentSubmitted"
           />
         </div>
 
@@ -144,6 +145,13 @@ function getStatusClass(status) {
 function formatTime(time) {
   if (!time) return '-'
   return dayjs(time).format('MM-DD HH:mm')
+}
+
+function handleCommentSubmitted({ taskId, comment }) {
+  // Update local data with the new comment
+  if (evaluationData.value && evaluationData.value.task_id === taskId) {
+    evaluationData.value.comment = comment
+  }
 }
 </script>
 

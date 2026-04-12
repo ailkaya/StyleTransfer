@@ -120,6 +120,13 @@ class Evaluation(Base):
         comment="样本对比数据(JSON格式)"
     )
 
+    # User comment/review
+    comment: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="用户评价/反馈"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
@@ -159,5 +166,6 @@ class Evaluation(Base):
             "vocab_diversity": self.vocab_diversity,
             "length_ratio": self.length_ratio,
             "avg_response_time": self.avg_response_time,
-            "samples": json.loads(self.samples) if self.samples else []
+            "samples": json.loads(self.samples) if self.samples else [],
+            "comment": self.comment
         }

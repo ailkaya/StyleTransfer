@@ -17,6 +17,12 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+# Load evaluation settings from config
+from config import settings
+
+EVALUATION_SAMPLE_COUNT = settings.EVALUATION_SAMPLE_COUNT
+EVALUATION_MOCK_DELAY = settings.EVALUATION_MOCK_DELAY
+
 
 @dataclass
 class EvaluationMetrics:
@@ -236,7 +242,7 @@ async def get_style_by_task_id(task_id: str) -> Optional[Style]:
 
 async def generate_test_samples(
     inference_service,
-    sample_count: int = 5
+    sample_count: int = EVALUATION_SAMPLE_COUNT
 ) -> List[str]:
     """Generate diverse test samples using LLM API."""
     topics = [
@@ -340,7 +346,7 @@ class EvaluationService:
 
         if inference_service:
             try:
-                source_texts = await generate_test_samples(inference_service, sample_count=5)
+                source_texts = await generate_test_samples(inference_service, sample_count=EVALUATION_SAMPLE_COUNT)
             except Exception as e:
                 logger.error(f"Failed to generate samples: {e}")
                 source_texts = self._get_fallback_samples()
@@ -405,7 +411,7 @@ class EvaluationService:
         Returns:
             Dictionary with sample evaluation data
         """
-        time.sleep(20)
+        time.sleep(EVALUATION_MOCK_DELAY)
         return {
             "task_id": task_id,
             "task_name": "示例风格任务",
