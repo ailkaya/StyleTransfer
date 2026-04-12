@@ -39,3 +39,11 @@ black==23.11.0
 flake8==6.1.0
 isort==5.12.0
 mypy==1.7.1
+
+# Local model training and inference (QLoRA)
+torch>=2.0.0
+transformers>=4.35.0
+peft>=0.7.0
+datasets>=2.14.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0

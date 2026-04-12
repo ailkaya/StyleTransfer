@@ -3,7 +3,7 @@
 > 本文件记录 v0.1 版本中需要留空或替换的代码模块，方便后续版本迭代时进行填充。
 
 ## 模块清单
-
+<!-- 
 ### 1. 本地模型推理 → 外部API调用
 
 **文件位置**: `backend/app/services/inference.py`
@@ -26,7 +26,7 @@ async def generate_style_transfer(text: str, style_id: str) -> str:
     # 如果有则加载本地模型+Adapter
     # 否则回退到外部API
     pass
-```
+``` -->
 
 ---
 
@@ -39,7 +39,7 @@ async def generate_style_transfer(text: str, style_id: str) -> str:
 **后续实现**: 完整的QLoRA微调流程
 
 **替换说明**:
-```python
+<!-- ```python
 # v0.1 - 占位实现
 def train_style_model(task_id: str, config: dict):
     # 模拟训练进度
@@ -55,11 +55,11 @@ def train_style_model(task_id: str, config: dict):
     # 4. QLoRA训练循环
     # 5. 保存Adapter权重
     pass
-```
+``` -->
 
 ---
 
-### 3. 评估指标计算
+<!-- ### 3. 评估指标计算
 
 **文件位置**: `backend/app/services/evaluation.py`
 
@@ -82,11 +82,11 @@ def generate_evaluation_report(task_id: str) -> str:
     # 3. 计算风格分类准确率
     # 4. 生成可视化报告
     pass
-```
+``` -->
 
 ---
 
-### 4. 评估文本生成 → 本地模型推理
+<!-- ### 4. 评估文本生成 → 本地模型推理
 
 **文件位置**: `backend/app/services/evaluation.py` - `generate_transferred_texts()`
 
@@ -119,7 +119,7 @@ def generate_transferred_texts(
     # 4. 批量推理生成转换文本
     # 5. 返回结果和推理时间
     pass
-```
+``` -->
 
 ---
 

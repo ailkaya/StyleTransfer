@@ -121,6 +121,7 @@ async def create_message(
             requirement=message_data.requirement,
             target_style=style.target_style,
             history=message_data.history,
+            style_id=style_id,
         )
         logger.info(f"Inference service returned response ({len(response_text)} chars)")
     except ValueError as e:

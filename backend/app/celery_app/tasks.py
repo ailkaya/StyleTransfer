@@ -284,10 +284,10 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
             "progress": 0,
         })
 
-        # Simulate training
-        logger.info("Step 2: Starting training simulation...")
+        # Start training
+        logger.info("Step 2: Starting QLoRA training...")
         total_epochs = config.get("num_epochs", 3)
-        logger.info(f"Total epochs to simulate: {total_epochs}")
+        logger.info(f"Total epochs: {total_epochs}")
 
         def on_progress(progress_data):
             logger.debug(
@@ -302,17 +302,17 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
                 # Task not found in database, stop training
                 raise RuntimeError(f"Task {task_id} not found in database, stopping training")
 
-        training_service.simulate_training_progress(
+        adapter_path = training_service.training_progress(
             task_id=task_id,
             total_epochs=total_epochs,
+            training_text=preprocessed['cleaned_text'],
+            config=config,
             on_progress=on_progress,
         )
-        logger.info("Training simulation completed")
+        logger.info("Training completed")
 
-        # Generate placeholder adapter
-        logger.info("Step 3: Generating adapter file...")
-        adapter_path = training_service.generate_adapter_file(style_id, task_id)
-        logger.info(f"Adapter file generated: {adapter_path}")
+        # Step 3: Verify adapter path
+        logger.info(f"Step 3: Adapter saved to: {adapter_path}")
 
         # Step 4: Run evaluation (this sets status to EVALUATING, then COMPLETED)
         logger.info("Step 4: Running evaluation...")

@@ -22,6 +22,7 @@ from config import settings
 
 EVALUATION_SAMPLE_COUNT = settings.EVALUATION_SAMPLE_COUNT
 EVALUATION_MOCK_DELAY = settings.EVALUATION_MOCK_DELAY
+EVALUATION_MOCK_MODE = settings.EVALUATION_MOCK_MODE
 
 
 @dataclass
@@ -242,6 +243,7 @@ async def get_style_by_task_id(task_id: str) -> Optional[Style]:
 
 async def generate_test_samples(
     inference_service,
+    task_id: str,
     sample_count: int = EVALUATION_SAMPLE_COUNT
 ) -> List[str]:
     """Generate diverse test samples using LLM API."""
@@ -256,6 +258,10 @@ async def generate_test_samples(
         "请分享一段关于{topic}的经历或观点，100字左右。",
     ]
 
+    # Get style_id once outside the loop
+    style = await get_style_by_task_id(task_id=task_id)
+    style_id = style.id if style else None
+
     samples = []
 
     for i in range(sample_count):
@@ -266,7 +272,8 @@ async def generate_test_samples(
             response = await inference_service.generate_style_transfer(
                 original_text=prompt,
                 requirement="生成一段自然的、多样化的文本内容",
-                target_style="标准"
+                target_style="标准",
+                style_id=style_id,
             )
             samples.append(response.strip())
         except Exception as e:
@@ -278,12 +285,17 @@ async def generate_test_samples(
 
 async def generate_transferred_texts(
     inference_service,
+    task_id: str,
     source_texts: List[str],
     target_style: str
 ) -> Tuple[List[str], List[float]]:
     """Generate style-transferred texts for given source texts."""
     transferred = []
     response_times = []
+
+    # Get style_id once outside the loop
+    style = await get_style_by_task_id(task_id=task_id)
+    style_id = style.id if style else None
 
     for source in source_texts:
         start_time = time.time()
@@ -292,7 +304,8 @@ async def generate_transferred_texts(
             result = await inference_service.generate_style_transfer(
                 original_text=source,
                 requirement=f"转换为{target_style}风格",
-                target_style=target_style
+                target_style=target_style,
+                style_id=style_id,
             )
             transferred.append(result.strip())
         except Exception as e:
@@ -322,8 +335,12 @@ class EvaluationService:
         task_id: str,
         inference_service=None
     ) -> dict:
-        # return self.generate_evaluation_data_true(task_id=task_id, inference_service=inference_service)
-        return self.get_mock_evaluation_data(task_id=task_id)
+        logger.info(f"[Evaluation] Starting evaluation for task: {task_id}, mock_mode: {EVALUATION_MOCK_MODE}")
+        if EVALUATION_MOCK_MODE:
+            # logger.info(f"[Evaluation] Using mock data for task: {task_id}")
+            return self.generate_evaluation_data_mock(task_id=task_id)
+        # logger.info(f"[Evaluation] Using real evaluation for task: {task_id}")
+        return await self.generate_evaluation_data_true(task_id=task_id, inference_service=inference_service)
 
     async def generate_evaluation_data_true(
         self,
@@ -346,7 +363,7 @@ class EvaluationService:
 
         if inference_service:
             try:
-                source_texts = await generate_test_samples(inference_service, sample_count=EVALUATION_SAMPLE_COUNT)
+                source_texts = await generate_test_samples(inference_service, task_id, sample_count=EVALUATION_SAMPLE_COUNT)
             except Exception as e:
                 logger.error(f"Failed to generate samples: {e}")
                 source_texts = self._get_fallback_samples()
@@ -359,7 +376,7 @@ class EvaluationService:
         if inference_service:
             try:
                 target_texts, response_times = await generate_transferred_texts(
-                    inference_service, source_texts, style.target_style
+                    inference_service, task_id, source_texts, style.target_style
                 )
             except Exception as e:
                 logger.error(f"Failed to generate transfers: {e}")
@@ -401,7 +418,7 @@ class EvaluationService:
             "samples": samples
         }
 
-    def get_mock_evaluation_data(self, task_id: str = "mock-task-id") -> dict:
+    def generate_evaluation_data_mock(self, task_id: str = "mock-task-id") -> dict:
         """
         Return hardcoded sample evaluation data for UI testing.
 

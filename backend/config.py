@@ -53,9 +53,16 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FILE: Optional[str] = None
 
+    GENERATING_MOCK_MODE: bool = True
+
     # Evaluation
     EVALUATION_SAMPLE_COUNT: int = 5
     EVALUATION_MOCK_DELAY: int = 20
+    EVALUATION_MOCK_MODE: bool = True
+
+    # Training
+    TRAINING_MOCK_MODE: bool = True
+    LOCAL_BASE_MODEL: str = "Qwen/Qwen2.5-7B-Instruct"
 
     class Config:
         env_file = ".env"
