@@ -2,6 +2,7 @@
 
 import os
 import json
+import asyncio
 from datetime import datetime
 from celery import Celery
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -9,8 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 import redis
 
-from ..models import Task
-from ..services import training_service, preprocessing_service
+from ..models import Task, Style, Evaluation
+from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service
 from ..utils import get_logger
 
 # Create Celery app
@@ -214,6 +215,113 @@ def update_task_result(task_id: str, adapter_path: str = None, error: str = None
         session.close()
 
 
+def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
+    """Run evaluation after training and save results to database."""
+    logger.info(f"Starting evaluation for task {task_id}")
+
+    session = get_sync_session()
+    try:
+        # Set status to EVALUATING
+        stmt = select(Task).where(Task.id == task_id)
+        result = session.execute(stmt)
+        task = result.scalar_one_or_none()
+
+        if not task:
+            logger.error(f"Task {task_id} not found for evaluation")
+            return
+
+        task.status = "EVALUATING"
+
+        # Update style status to evaluating
+        style_stmt = select(Style).where(Style.id == style_id)
+        style_result = session.execute(style_stmt)
+        style = style_result.scalar_one_or_none()
+
+        if style:
+            style.status = "evaluating"
+
+        session.commit()
+
+        # Publish evaluating status
+        publish_progress_update(task_id, {
+            "status": "EVALUATING",
+            "progress": 100,
+            "message": "正在评估模型效果..."
+        })
+
+        # Run evaluation using mock data for now
+        # In production, this would use the actual inference service
+        try:
+            inference_service = get_inference_service()
+            evaluation_data = asyncio.run(evaluation_service.generate_evaluation_data(task_id, inference_service))
+
+            # Save evaluation data to separate Evaluation table
+            import json
+            evaluation = Evaluation(
+                task_id=task_id,
+                style_id=style_id,
+                task_name=task.name or "未命名任务",
+                target_style=style.target_style if style else "",
+                overall_score=evaluation_data.get("overall_score", 0),
+                sample_count=evaluation_data.get("sample_count", 0),
+                semantic_score=evaluation_data.get("semantic_score", 0),
+                char_retention=evaluation_data.get("char_retention", 0),
+                style_score=evaluation_data.get("style_score", 0),
+                fluency_score=evaluation_data.get("fluency_score", 0),
+                vocab_diversity=evaluation_data.get("vocab_diversity", 0),
+                length_ratio=evaluation_data.get("length_ratio", 0),
+                avg_response_time=evaluation_data.get("avg_response_time", 0),
+                samples=json.dumps(evaluation_data.get("samples", []))
+            )
+            session.add(evaluation)
+
+            task.status = "COMPLETED"
+            task.progress = 100
+            task.completed_at = datetime.utcnow()
+
+            # Update style to available
+            if style:
+                style.status = "available"
+                style.adapter_path = adapter_path
+
+            session.commit()
+
+            logger.info(f"Evaluation completed for task {task_id}")
+
+            # Publish completion
+            publish_progress_update(task_id, {
+                "status": "COMPLETED",
+                "progress": 100,
+                "evaluation_data": evaluation_data
+            })
+
+        except Exception as eval_error:
+            logger.error(f"Evaluation failed for task {task_id}: {eval_error}")
+            # Even if evaluation fails, mark as completed (with empty evaluation)
+            task.status = "COMPLETED"
+            task.evaluation_data = None
+            task.completed_at = datetime.utcnow()
+
+            if style:
+                style.status = "available"
+                style.adapter_path = adapter_path
+
+            session.commit()
+
+            publish_progress_update(task_id, {
+                "status": "COMPLETED",
+                "progress": 100,
+                "evaluation_error": str(eval_error)
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to run evaluation for task {task_id}: {e}")
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=5)
 def train_style_model(self, task_id: str, style_id: str, training_text: str, config: dict):
     """
@@ -288,12 +396,12 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
         adapter_path = training_service.generate_adapter_file(style_id, task_id)
         logger.info(f"Adapter file generated: {adapter_path}")
 
-        # Update final result
-        logger.info("Step 4: Updating task result...")
-        update_task_result(task_id, adapter_path=adapter_path)
+        # Step 4: Run evaluation (this sets status to EVALUATING, then COMPLETED)
+        logger.info("Step 4: Running evaluation...")
+        run_evaluation_and_save(task_id, style_id, adapter_path)
 
         logger.info("=" * 60)
-        logger.info(f"Training task {task_id} completed successfully")
+        logger.info(f"Training task {task_id} completed successfully with evaluation")
         logger.info("=" * 60)
 
         return {

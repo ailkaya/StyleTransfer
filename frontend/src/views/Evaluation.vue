@@ -101,7 +101,10 @@ const selectedTaskId = ref('')
 const evaluationData = ref(null)
 const loading = ref(false)
 
-const completedTasks = computed(() => taskStore.completedTasks)
+// Include COMPLETED and EVALUATING tasks
+const completedTasks = computed(() =>
+  taskStore.tasks.filter(t => t.status === 'COMPLETED' || t.status === 'EVALUATING')
+)
 
 onMounted(async () => {
   await taskStore.fetchTasks()
@@ -119,7 +122,10 @@ async function loadEvaluation() {
   evaluationData.value = null
   try {
     const response = await taskStore.fetchEvaluation(selectedTaskId.value)
-    if (response.data) {
+    if (response.message === 'evaluating') {
+      ElMessage.info('模型评估中，请稍候...')
+      evaluationData.value = null
+    } else if (response.data) {
       evaluationData.value = response.data
     }
   } catch (error) {
@@ -130,7 +136,9 @@ async function loadEvaluation() {
 }
 
 function getStatusClass(status) {
-  return status === 'COMPLETED' ? 'success' : 'error'
+  if (status === 'COMPLETED') return 'success'
+  if (status === 'EVALUATING') return 'warning'
+  return 'error'
 }
 
 function formatTime(time) {
@@ -261,6 +269,11 @@ function formatTime(time) {
 .task-status-icon.success {
   background: rgba(16, 185, 129, 0.1);
   color: var(--success-color);
+}
+
+.task-status-icon.warning {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
 }
 
 .task-status-icon.error {

@@ -45,6 +45,13 @@
           <span class="status-dot"></span>
           训练中
         </button>
+        <button
+          :class="['status-btn evaluating', { active: statusFilter === 'evaluating' }]"
+          @click="statusFilter = 'evaluating'"
+        >
+          <span class="status-dot"></span>
+          评估中
+        </button>
       </div>
 
       <div class="bar-actions">
@@ -89,14 +96,14 @@
               <el-button
                 link
                 :icon="Edit"
-                :disabled="style.status === 'training'"
+                :disabled="style.status === 'training' || style.status === 'evaluating'"
                 @click="editStyle(style)"
               />
               <el-button
                 link
                 type="danger"
                 :icon="Delete"
-                :disabled="style.status === 'training'"
+                :disabled="style.status === 'training' || style.status === 'evaluating'"
                 @click="confirmDelete(style)"
               />
             </div>
@@ -117,12 +124,20 @@
               {{ formatTime(style.created_at) }}
             </span>
             <el-button
-              v-if="style.status === 'available'"
+              v-if="isStyleAvailable(style.status)"
               type="primary"
               size="small"
               @click="viewStyleDetail(style)"
             >
               使用
+            </el-button>
+            <el-button
+              v-else
+              type="primary"
+              size="small"
+              disabled
+            >
+              {{ getStatusLabel(style.status) }}
             </el-button>
           </div>
         </div>
@@ -167,7 +182,7 @@
               link
               type="primary"
               :icon="Edit"
-              :disabled="style.status === 'training'"
+              :disabled="style.status === 'training' || style.status === 'evaluating'"
               @click="editStyle(style)"
             >
               编辑
@@ -176,7 +191,7 @@
               link
               type="danger"
               :icon="Delete"
-              :disabled="style.status === 'training'"
+              :disabled="style.status === 'training' || style.status === 'evaluating'"
               @click="confirmDelete(style)"
             >
               删除
@@ -404,7 +419,8 @@ function getStatusClass(status) {
     'training': 'status-training',
     'completed': 'status-completed',
     'failed': 'status-failed',
-    'available': 'status-available'
+    'available': 'status-available',
+    'evaluating': 'status-evaluating'
   }
   return classes[status] || 'status-pending'
 }
@@ -415,9 +431,14 @@ function getStatusLabel(status) {
     'training': '训练中',
     'completed': '已完成',
     'failed': '失败',
-    'available': '可用'
+    'available': '可用',
+    'evaluating': '评估中'
   }
   return labels[status] || status
+}
+
+function isStyleAvailable(status) {
+  return status === 'available'
 }
 
 function formatTime(time) {
@@ -603,6 +624,14 @@ async function confirmDelete(style) {
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
 }
 
+.status-btn.evaluating.active {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+}
+
+.status-btn.evaluating .status-dot {
+  background: #8b5cf6;
+}
+
 .status-btn .status-dot {
   width: 8px;
   height: 8px;
@@ -705,6 +734,10 @@ async function confirmDelete(style) {
   border-color: rgba(245, 158, 11, 0.3);
 }
 
+.style-card.status-evaluating {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -743,6 +776,15 @@ async function confirmDelete(style) {
 .header-status.training .status-indicator {
   background: #f59e0b;
   box-shadow: 0 0 8px #f59e0b;
+}
+
+.header-status.evaluating {
+  color: #7c3aed;
+}
+
+.header-status.evaluating .status-indicator {
+  background: #8b5cf6;
+  box-shadow: 0 0 8px #8b5cf6;
 }
 
 .header-status.pending {
@@ -791,6 +833,11 @@ async function confirmDelete(style) {
 .style-icon.pending {
   background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
   box-shadow: 0 8px 20px rgba(148, 163, 184, 0.3);
+}
+
+.style-icon.evaluating {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  box-shadow: 0 8px 20px rgba(139, 92, 246, 0.3);
 }
 
 .style-card:hover .style-icon {
@@ -924,6 +971,10 @@ async function confirmDelete(style) {
   background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
 }
 
+.list-icon.evaluating {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+}
+
 .list-text {
   min-width: 0;
 }
@@ -963,6 +1014,15 @@ async function confirmDelete(style) {
 
 .list-status.pending {
   color: #64748b;
+}
+
+.list-status.evaluating {
+  color: #7c3aed;
+}
+
+.list-status.evaluating .status-indicator {
+  background: #8b5cf6;
+  box-shadow: 0 0 6px #8b5cf6;
 }
 
 .list-status .status-indicator {

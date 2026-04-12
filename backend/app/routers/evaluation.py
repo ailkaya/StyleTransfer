@@ -3,14 +3,13 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response as FastAPIResponse
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 
-from ..models import get_db, Task
+from ..models import get_db, Task, Evaluation
 from ..schemas import Response
-from ..services import evaluation_service, get_inference_service
 
 router = APIRouter(prefix="/api/tasks", tags=["evaluation"])
 
@@ -49,7 +48,7 @@ async def get_evaluation(
     task_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get evaluation report data for a completed task."""
+    """Get evaluation report data from evaluations table for a completed task."""
     # Verify task exists
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -62,19 +61,57 @@ async def get_evaluation(
             detail=f"Task with id '{task_id}' not found"
         )
 
-    # Get inference service for generating samples
-    inference_service = get_inference_service()
+    # Check if task is still evaluating
+    if task.status == "EVALUATING":
+        return EvaluationResponse(
+            code=200,
+            message="evaluating",
+            data=None,
+            timestamp=datetime.utcnow(),
+        )
 
-    # Generate evaluation data
-    # evaluation_data = await evaluation_service.generate_evaluation_data(
-    #     task_id=task_id,
-    #     inference_service=inference_service
-    # )
-    evaluation_data = evaluation_service.get_mock_evaluation_data(task_id=task_id)
+    # Check if task is completed but evaluation not done
+    if task.status != "COMPLETED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task status is {task.status}, evaluation not available"
+        )
 
-    return EvaluationResponse(
-        code=200,
-        message="success",
-        data=evaluation_data,
-        timestamp=datetime.utcnow(),
+    # Query evaluation from separate table
+    eval_result = await db.execute(
+        select(Evaluation).where(Evaluation.task_id == task_id)
     )
+    evaluation = eval_result.scalar_one_or_none()
+
+    if evaluation:
+        # Return evaluation data from database
+        return EvaluationResponse(
+            code=200,
+            message="success",
+            data=evaluation.to_dict(),
+            timestamp=datetime.utcnow(),
+        )
+    else:
+        # Task completed but no evaluation record found
+        # Return empty/default data
+        return EvaluationResponse(
+            code=200,
+            message="success",
+            data={
+                "task_id": str(task_id),
+                "task_name": task.name or "未命名任务",
+                "target_style": "未知",
+                "generated_at": task.completed_at.strftime('%Y-%m-%d %H:%M') if task.completed_at else "-",
+                "overall_score": 0,
+                "sample_count": 0,
+                "semantic_score": 0,
+                "char_retention": 0,
+                "style_score": 0,
+                "fluency_score": 0,
+                "vocab_diversity": 0,
+                "length_ratio": 0,
+                "avg_response_time": 0,
+                "samples": []
+            },
+            timestamp=datetime.utcnow(),
+        )

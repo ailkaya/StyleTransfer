@@ -310,8 +310,16 @@ class EvaluationService:
             "健康的生活方式包括均衡的饮食、规律的运动和充足的睡眠。保持良好的生活习惯有助于提高生活质量。",
             "团队合作是现代企业中不可或缺的一部分。有效的沟通和协作能够帮助团队更好地完成任务，实现共同目标。"
         ]
-
+    
     async def generate_evaluation_data(
+        self,
+        task_id: str,
+        inference_service=None
+    ) -> dict:
+        # return self.generate_evaluation_data_true(task_id=task_id, inference_service=inference_service)
+        return self.get_mock_evaluation_data(task_id=task_id)
+
+    async def generate_evaluation_data_true(
         self,
         task_id: str,
         inference_service=None
