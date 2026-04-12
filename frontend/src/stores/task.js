@@ -8,7 +8,6 @@ export const useTaskStore = defineStore('task', () => {
   const currentTask = ref(null)
   const loading = ref(false)
   const error = ref(null)
-  const wsConnection = ref(null)
 
   // Getters
   const pendingTasks = computed(() =>
@@ -106,55 +105,7 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  // WebSocket connection for real-time progress
-  function connectToTaskProgress(taskId, onMessage) {
-    const wsUrl = `ws://${window.location.host}/ws/tasks/${taskId}`
-    console.log('[TaskStore] Connecting WebSocket:', wsUrl)
-
-    const ws = new WebSocket(wsUrl)
-    let messageCount = 0
-
-    ws.onopen = () => {
-      console.log('[TaskStore] WebSocket connected for task:', taskId)
-    }
-
-    ws.onmessage = (event) => {
-      messageCount++
-      const data = JSON.parse(event.data)
-      console.log(`[TaskStore] WebSocket message #${messageCount}:`, {
-        type: data.type,
-        task_id: data.task_id,
-        status: data.data?.status,
-        progress: data.data?.progress
-      })
-      onMessage(data)
-    }
-
-    ws.onerror = (error) => {
-      console.error('[TaskStore] WebSocket error:', error)
-    }
-
-    ws.onclose = (event) => {
-      console.log('[TaskStore] WebSocket closed for task:', taskId, {
-        code: event.code,
-        reason: event.reason,
-        messages_received: messageCount
-      })
-      wsConnection.value = null
-    }
-
-    wsConnection.value = ws
-    return ws
-  }
-
-  function disconnectWebSocket() {
-    if (wsConnection.value) {
-      console.log('[TaskStore] Disconnecting WebSocket')
-      wsConnection.value.close()
-      wsConnection.value = null
-    }
-  }
-
+  // Update task progress in local state
   function updateTaskProgress(taskId, progressData) {
     console.log('[TaskStore] Updating task progress:', taskId, progressData)
     const index = tasks.value.findIndex(t => t.id === taskId)
@@ -171,7 +122,6 @@ export const useTaskStore = defineStore('task', () => {
     currentTask,
     loading,
     error,
-    wsConnection,
     pendingTasks,
     runningTasks,
     completedTasks,
@@ -180,8 +130,6 @@ export const useTaskStore = defineStore('task', () => {
     createTask,
     fetchTaskLogs,
     fetchEvaluation,
-    connectToTaskProgress,
-    disconnectWebSocket,
     updateTaskProgress
   }
 })

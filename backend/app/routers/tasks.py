@@ -135,12 +135,23 @@ async def create_task(
     logger.info(f"Starting Celery task for task_id={new_task.id}")
     try:
         import time
+        import asyncio
         celery_start = time.time()
 
-        # Check if Celery is available
+        # Check if Celery is available (run in thread pool to avoid blocking)
         from ..celery_app.tasks import celery_app
-        inspect = celery_app.control.inspect()
-        workers = inspect.ping()
+
+        def check_celery_workers():
+            """Sync function to check Celery workers."""
+            try:
+                inspect = celery_app.control.inspect()
+                return inspect.ping()
+            except Exception as e:
+                logger.warning(f"Failed to inspect Celery workers: {e}")
+                return None
+
+        # Run blocking Celery inspect in thread pool
+        workers = await asyncio.to_thread(check_celery_workers)
         if not workers:
             logger.warning("No Celery workers detected! Task will be queued but may not process.")
         else:

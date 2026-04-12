@@ -81,13 +81,12 @@ npm run lint
 - `routers/` - FastAPI route handlers
 - `services/` - Business logic (inference.py, training.py, preprocessing.py, evaluation.py)
 - `celery_app/` - Celery configuration and training tasks
-- `websocket/` - WebSocket endpoints for real-time training progress
 
 **Key Data Flow - Training**:
 1. Client POST `/api/tasks` creates task, sets status=PENDING
 2. Celery task `train_style_model.delay()` dispatched
-3. Worker updates progress via `update_task_progress()` → publishes to Redis
-4. WebSocket consumer at `/ws/tasks/{id}` broadcasts to connected clients
+3. Worker updates progress via `update_task_progress()` → saves to database
+4. Client polls task status via GET `/api/tasks/{id}` to check progress
 5. Training simulation generates adapter files in `./models/adapters/`
 
 **Key Data Flow - Style Transfer**:
@@ -98,7 +97,6 @@ npm run lint
 
 **Important Patterns**:
 - Celery tasks use SYNC database operations (SQLAlchemy sync engine) while main app uses async
-- Training logs are published via Redis/WebSocket, NOT stored in database (logs field deprecated)
 - Task.name corresponds to Style.name for display purposes
 
 ### Frontend Structure
@@ -111,14 +109,13 @@ npm run lint
 
 **Proxy Configuration** (vite.config.js):
 - `/api` → `http://localhost:8000`
-- `/ws` → `ws://localhost:8000`
 
 ## Configuration
 
 ### Environment Variables (backend/.env)
 Critical variables that must be set:
 - `DATABASE_URL` - PostgreSQL async connection string
-- `REDIS_URL` - Redis connection for Celery and WebSocket
+- `REDIS_URL` - Redis connection for Celery task queue
 - `LLM_BASE_URL`, `LLM_MODEL_NAME`, `LLM_API_KEY` - External LLM API configuration
 - `SYNC_DATABASE_URL` - Sync connection for Celery tasks
 

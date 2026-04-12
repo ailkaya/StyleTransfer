@@ -526,13 +526,6 @@ async function startTraining() {
     ElMessage.success('训练任务已创建')
     currentTask.value = task
 
-    // 3. Connect WebSocket
-    taskStore.connectToTaskProgress(task.id, (data) => {
-      if (data.type === 'progress') {
-        Object.assign(task, data.data)
-      }
-    })
-
   } catch (error) {
     ElMessage.error(error.message)
   } finally {

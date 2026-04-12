@@ -82,7 +82,7 @@ class TaskListItem(BaseModel):
 
 
 class TaskProgressUpdate(BaseModel):
-    """Schema for task progress update via WebSocket."""
+    """Schema for task progress update."""
 
     type: str = "progress"
     data: Dict[str, Any]

@@ -5,10 +5,8 @@ import json
 import asyncio
 from datetime import datetime
 from celery import Celery
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
-import redis
 
 from ..models import Task, Style, Evaluation
 from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service
@@ -54,57 +52,14 @@ def get_sync_session():
         logger.debug("Sync session factory created")
     return _SyncSessionLocal()
 
-# Redis for WebSocket notifications (lazy initialization)
-_redis_client = None
-
-def get_redis_client():
-    global _redis_client
-    if _redis_client is None:
-        logger.debug("Initializing Redis client for Celery tasks...")
-        try:
-            _redis_client = redis.Redis.from_url(
-                os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-            )
-            # Test connection
-            _redis_client.ping()
-            logger.info("Redis client initialized and connected")
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            _redis_client = None
-    return _redis_client
-
 logger.info("Celery tasks module loaded")
-
-
-def publish_progress_update(task_id: str, progress_data: dict):
-    """Publish progress update to Redis for WebSocket consumers."""
-    client = get_redis_client()
-    if client is None:
-        logger.warning(f"Redis not available, skipping progress publish for task {task_id}")
-        return
-
-    try:
-        message = {
-            "type": "progress",
-            "task_id": task_id,
-            "data": progress_data,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-        channel = f"task:{task_id}"
-        result = client.publish(channel, json.dumps(message))
-        logger.debug(f"Published progress to {channel}, subscribers: {result}")
-    except Exception as e:
-        logger.error(f"Failed to publish progress update for task {task_id}: {e}")
 
 
 # Track missing tasks to avoid repeated error logging
 _missing_tasks_cache = set()
 
 def update_task_progress(task_id: str, progress_data: dict):
-    """Update task progress in database and notify via Redis."""
+    """Update task progress in database."""
     # Skip if we already know this task is missing
     if task_id in _missing_tasks_cache:
         return False
@@ -128,8 +83,6 @@ def update_task_progress(task_id: str, progress_data: dict):
             task.elapsed_time = progress_data.get("elapsed_time")
             task.estimated_remaining = progress_data.get("estimated_remaining")
 
-            # Note: logs are no longer saved to database, only published via Redis
-
             if progress_data.get("status") in ["COMPLETED", "FAILED"]:
                 task.completed_at = datetime.utcnow()
 
@@ -140,8 +93,6 @@ def update_task_progress(task_id: str, progress_data: dict):
                 f"{task.status}({task.progress}%)"
             )
 
-            # Publish to Redis for WebSocket broadcast
-            publish_progress_update(task_id, progress_data)
             return True
         else:
             # Only log error once per task
@@ -192,16 +143,6 @@ def update_task_result(task_id: str, adapter_path: str = None, error: str = None
             session.commit()
 
             logger.info(f"Task {task_id} completed with status: {task.status}")
-
-            # Publish completion notification to Redis
-            progress_data = {
-                "status": task.status,
-                "progress": 100 if adapter_path else 0,
-                # Note: log_lines no longer saved to database
-            }
-            if error:
-                progress_data["error"] = error
-            publish_progress_update(task_id, progress_data)
         else:
             # Only log error once per task
             if task_id not in _missing_tasks_cache:
@@ -242,13 +183,6 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
 
         session.commit()
 
-        # Publish evaluating status
-        publish_progress_update(task_id, {
-            "status": "EVALUATING",
-            "progress": 100,
-            "message": "正在评估模型效果..."
-        })
-
         # Run evaluation using mock data for now
         # In production, this would use the actual inference service
         try:
@@ -288,13 +222,6 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
 
             logger.info(f"Evaluation completed for task {task_id}")
 
-            # Publish completion
-            publish_progress_update(task_id, {
-                "status": "COMPLETED",
-                "progress": 100,
-                "evaluation_data": evaluation_data
-            })
-
         except Exception as eval_error:
             logger.error(f"Evaluation failed for task {task_id}: {eval_error}")
             # Even if evaluation fails, mark as completed (with empty evaluation)
@@ -307,12 +234,6 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
                 style.adapter_path = adapter_path
 
             session.commit()
-
-            publish_progress_update(task_id, {
-                "status": "COMPLETED",
-                "progress": 100,
-                "evaluation_error": str(eval_error)
-            })
 
     except Exception as e:
         logger.error(f"Failed to run evaluation for task {task_id}: {e}")
@@ -362,7 +283,6 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
             "status": "PROCESSING",
             "progress": 0,
         })
-        # Note: Logs are published via Redis for real-time display, not saved to database
 
         # Simulate training
         logger.info("Step 2: Starting training simulation...")
@@ -374,8 +294,6 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
                 f"Epoch {progress_data.get('current_epoch')}/{total_epochs}: "
                 f"{progress_data.get('progress')}% - Loss: {progress_data.get('current_loss')}"
             )
-            # Publish logs via Redis for real-time display, but don't save to database
-            publish_progress_update(task_id, progress_data)
 
             # Strip log_lines before saving to database
             db_progress_data = {k: v for k, v in progress_data.items() if k != "log_lines"}

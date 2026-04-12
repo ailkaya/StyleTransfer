@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 from config import settings
 from app.models import init_db
 from app.routers import api_router
-from app.websocket import websocket_router
 from app.utils import setup_logging, get_logger
 
 # Setup logging
@@ -66,7 +65,6 @@ app.add_middleware(
 
 # Include routers
 app.include_router(api_router)
-app.include_router(websocket_router)
 
 # Request logging middleware
 @app.middleware("http")
