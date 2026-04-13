@@ -97,6 +97,7 @@ class TrainingService:
         task_id: str,
         total_epochs: int,
         training_text: Optional[str] = None,
+        validation_text: Optional[list] = None,
         config: Optional[Dict[str, Any]] = None,
         on_progress: Optional[callable] = None,
     ):
@@ -121,6 +122,7 @@ class TrainingService:
             task_id=task_id,
             total_epochs=total_epochs,
             training_text=training_text,
+            validation_text=validation_text,
             config=config,
             on_progress=on_progress
         )
@@ -130,6 +132,7 @@ class TrainingService:
         task_id: str,
         total_epochs: int,
         training_text: Optional[str] = None,
+        validation_text: Optional[list] = None,
         config: Optional[Dict[str, Any]] = None,
         on_progress: Optional[callable] = None,
     ):
@@ -273,9 +276,38 @@ class TrainingService:
             model = get_peft_model(model, lora_config)
 
             # Prepare dataset
-            texts = [t.strip() for t in training_text.split('\n') if t.strip()]
+            # Handle both old format (plain string) and new format (DataPreprocessor output)
+            texts = []
+            if isinstance(training_text, list):
+                # New format: DataPreprocessor output with conversations
+                for sample in training_text:
+                    if isinstance(sample, dict) and "conversations" in sample:
+                        # Extract the conversation text in a format suitable for training
+                        # Format: "Human: {value}\nAssistant: {value}"
+                        convo = sample["conversations"]
+                        if len(convo) >= 2:
+                            human_text = convo[0].get("value", "")
+                            assistant_text = convo[1].get("value", "")
+                            # Create a formatted training example
+                            formatted = f"### System: {sample.get('system', '')}\n\n### Human: {human_text}\n\n### Assistant: {assistant_text}"
+                            texts.append(formatted)
+                    elif isinstance(sample, dict) and "text" in sample:
+                        # Old format with text field
+                        texts.append(sample["text"])
+                    elif isinstance(sample, str):
+                        texts.append(sample)
+            elif isinstance(training_text, str):
+                # Legacy format: plain string
+                texts = [t.strip() for t in training_text.split('\n') if t.strip()]
+                if len(texts) < 1:
+                    texts = [training_text]
+            else:
+                texts = [str(training_text)]
+
             if len(texts) < 1:
-                texts = [training_text]  # Use entire text as one sample
+                raise ValueError("No valid training samples found in training_text")
+
+            logger.info(f"[Training] Prepared {len(texts)} training samples")
 
             # Create dataset
             def tokenize_function(examples):
@@ -293,6 +325,33 @@ class TrainingService:
                 remove_columns=dataset.column_names
             )
 
+            # Prepare validation dataset if provided
+            eval_dataset = None
+            if validation_text:
+                val_texts = []
+                if isinstance(validation_text, list):
+                    for sample in validation_text:
+                        if isinstance(sample, dict) and "conversations" in sample:
+                            convo = sample["conversations"]
+                            if len(convo) >= 2:
+                                human_text = convo[0].get("value", "")
+                                assistant_text = convo[1].get("value", "")
+                                formatted = f"### System: {sample.get('system', '')}\n\n### Human: {human_text}\n\n### Assistant: {assistant_text}"
+                                val_texts.append(formatted)
+                        elif isinstance(sample, dict) and "text" in sample:
+                            val_texts.append(sample["text"])
+                        elif isinstance(sample, str):
+                            val_texts.append(sample)
+
+                if val_texts:
+                    val_dataset = Dataset.from_dict({"text": val_texts})
+                    eval_dataset = val_dataset.map(
+                        tokenize_function,
+                        batched=True,
+                        remove_columns=val_dataset.column_names
+                    )
+                    logger.info(f"[Training] Prepared {len(val_texts)} validation samples")
+
             # Data collator
             data_collator = DataCollatorForLanguageModeling(
                 tokenizer=tokenizer,
@@ -300,7 +359,7 @@ class TrainingService:
             )
 
             # Training arguments
-            training_args = TrainingArguments(
+            training_args_kwargs = dict(
                 output_dir=adapter_dir,
                 num_train_epochs=total_epochs,
                 per_device_train_batch_size=train_config["per_device_train_batch_size"],
@@ -316,19 +375,36 @@ class TrainingService:
                 remove_unused_columns=False,
             )
 
+            # Add evaluation if validation data exists
+            if eval_dataset is not None:
+                training_args_kwargs.update({
+                    "evaluation_strategy": "epoch",
+                    "eval_steps": train_config["logging_steps"],
+                    "load_best_model_at_end": True,
+                    "metric_for_best_model": "eval_loss",
+                })
+
+            training_args = TrainingArguments(**training_args_kwargs)
+
             # Progress callback
             progress_callback = ProgressCallback(
                 self, task_id, total_epochs, start_time, on_progress
             )
 
             # Initialize trainer
-            trainer = Trainer(
+            trainer_kwargs = dict(
                 model=model,
                 args=training_args,
                 train_dataset=tokenized_dataset,
                 data_collator=data_collator,
                 callbacks=[],
             )
+
+            # Add eval dataset if available
+            if eval_dataset is not None:
+                trainer_kwargs["eval_dataset"] = eval_dataset
+
+            trainer = Trainer(**trainer_kwargs)
 
             # Add progress callback
             trainer.add_callback(progress_callback)
@@ -459,7 +535,9 @@ class TrainingService:
         if on_progress:
             on_progress(final_progress)
 
-        return final_progress
+        # Generate adapter files and return path
+        adapter_dir = self.generate_adapter_file(task_id, task_id)
+        return adapter_dir
 
 
 # Global training service instance

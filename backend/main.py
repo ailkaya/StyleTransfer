@@ -35,8 +35,13 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
 
     logger.info("Initializing database...")
-    await init_db()
-    logger.info("Database initialized successfully")
+    try:
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        logger.error("Please ensure PostgreSQL is running and DATABASE_URL is correct")
+        raise
 
     logger.info(f"CORS Origins: {settings.get_cors_origins()}")
     logger.info("Application startup complete")

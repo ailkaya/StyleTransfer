@@ -52,6 +52,13 @@
           <span class="status-dot"></span>
           评估中
         </button>
+        <button
+          :class="['status-btn preprocessing', { active: statusFilter === 'preprocessing' }]"
+          @click="statusFilter = 'preprocessing'"
+        >
+          <span class="status-dot"></span>
+          处理训练数据
+        </button>
       </div>
 
       <div class="bar-actions">
@@ -248,7 +255,7 @@ const pageSize = ref(12)
 const editDialogVisible = ref(false)
 const saving = ref(false)
 const isSearchFocused = ref(false)
-const statusFilter = ref('') // '', 'available', 'training'
+const statusFilter = ref('') // '', 'available', 'training', 'evaluating', 'preprocessing'
 
 const editForm = reactive({
   id: '',
@@ -522,6 +529,14 @@ function openProgressDialog(style) {
 
 .status-btn.evaluating.active {
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+}
+
+.status-btn.preprocessing.active {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
+.status-btn.preprocessing .status-dot {
+  background: #06b6d4;
 }
 
 .status-btn.evaluating .status-dot {

@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 
 from ..models import Task, Style, Evaluation
-from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service
+from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service, DataPreprocessor
 from ..utils import get_logger
 
 # Create Celery app
@@ -108,6 +108,43 @@ def update_task_progress(task_id: str, progress_data: dict):
         session.close()
 
 
+def update_style_status(style_id: str, status: str, adapter_path: str = None) -> bool:
+    """
+    Update style status in database.
+
+    Args:
+        style_id: Style ID
+        status: New status (pending, preprocessing, training, evaluating, available, failed)
+        adapter_path: Optional adapter path to set
+
+    Returns:
+        True if successful, False otherwise
+    """
+    session = get_sync_session()
+    try:
+        stmt = select(Style).where(Style.id == style_id)
+        result = session.execute(stmt)
+        style = result.scalar_one_or_none()
+
+        if style:
+            old_status = style.status
+            style.status = status
+            if adapter_path is not None:
+                style.adapter_path = adapter_path
+            session.commit()
+            logger.info(f"Style {style_id} status updated: {old_status} -> {status}")
+            return True
+        else:
+            logger.warning(f"Style {style_id} not found for status update")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to update style {style_id} status: {e}")
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
 def update_task_result(task_id: str, adapter_path: str = None, error: str = None):
     """Update task result after completion."""
     logger.info(f"Updating task result for {task_id}: adapter_path={adapter_path is not None}, error={error is not None}")
@@ -130,10 +167,7 @@ def update_task_result(task_id: str, adapter_path: str = None, error: str = None
                 style_result = session.execute(style_stmt)
                 style = style_result.scalar_one_or_none()
                 if style:
-                    old_style_status = style.status
-                    style.status = "available"
-                    style.adapter_path = adapter_path
-                    logger.info(f"Style {task.style_id} status updated: {old_style_status} -> available")
+                    update_style_status(task.style_id, "available", adapter_path)
 
             if error:
                 task.error_message = error
@@ -178,10 +212,7 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
         style_result = session.execute(style_stmt)
         style = style_result.scalar_one_or_none()
 
-        if style:
-            style.status = "evaluating"
-
-        session.commit()
+        update_style_status(style_id, "evaluating")
 
         # Run evaluation using mock data for now
         # In production, this would use the actual inference service
@@ -213,12 +244,10 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
             task.progress = 100
             task.completed_at = datetime.utcnow()
 
-            # Update style to available
-            if style:
-                style.status = "available"
-                style.adapter_path = adapter_path
-
             session.commit()
+
+            # Update style to available
+            update_style_status(style_id, "available", adapter_path)
 
             logger.info(f"Evaluation completed for task {task_id}")
 
@@ -229,11 +258,9 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
             task.evaluation_data = None
             task.completed_at = datetime.utcnow()
 
-            if style:
-                style.status = "available"
-                style.adapter_path = adapter_path
-
             session.commit()
+
+            update_style_status(style_id, "available", adapter_path)
 
     except Exception as e:
         logger.error(f"Failed to run evaluation for task {task_id}: {e}")
@@ -243,13 +270,10 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
         session.close()
 
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=5)
+@celery_app.task(bind=True, max_retries=1, default_retry_delay=5)
 def train_style_model(self, task_id: str, style_id: str, training_text: str, config: dict):
     """
     Celery task for training style model.
-
-    In v0.1, this simulates training progress.
-    In v0.2+, this will implement actual QLoRA training.
     """
     # Clear from missing tasks cache (in case of retry)
     if task_id in _missing_tasks_cache:
@@ -265,24 +289,70 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
     logger.info(f"Attempt: {self.request.retries + 1}/4")
     logger.info("=" * 60)
 
+    # Update style status to preprocessing
+    update_style_status(style_id, "preprocessing")
+
+    # Get style config for preprocessing
+    session = get_sync_session()
+    style_config = {}
     try:
-        # Preprocess training text
-        logger.info("Step 1: Preprocessing training text...")
-        preprocessed = preprocessing_service.preprocess_training_text(
-            training_text,
-            chunk_size=config.get("max_length", 512),
-            overlap=128,
+        style_stmt = select(Style).where(Style.id == style_id)
+        style_result = session.execute(style_stmt)
+        style = style_result.scalar_one_or_none()
+        if style:
+            style_config = {
+                'target_style': f"<{style.target_style}>",
+                'style_name': style.name,
+                'style_description': style.description or ''
+            }
+    finally:
+        session.close()
+
+    try:
+        # Preprocess training text using DataPreprocessor
+        logger.info("Step 1: Preprocessing training text with DataPreprocessor...")
+
+        # Initialize preprocessor with style config
+        preprocessor = DataPreprocessor(style_config=style_config)
+
+        # Run full preprocessing pipeline
+        preprocessed = preprocessor.process(
+            raw_text=training_text,
+            target_length=config.get("chunk_size", 1024),
+            overlap=config.get("chunk_overlap", 256),
+            train_ratio=0.95
         )
+
         logger.info(f"Preprocessing complete:")
-        logger.info(f"  - Chunks: {preprocessed['chunk_count']}")
-        logger.info(f"  - Estimated tokens: {preprocessed['estimated_tokens']}")
-        logger.info(f"  - Cleaned text length: {len(preprocessed['cleaned_text'])} chars")
+        logger.info(f"  - Language: {preprocessed['metadata']['language']}")
+        logger.info(f"  - Chunks: {preprocessed['metadata']['chunk_count']}")
+        logger.info(f"  - Samples: {preprocessed['metadata']['sample_count']}")
+        logger.info(f"  - Train samples: {len(preprocessed['train_data'])}")
+        logger.info(f"  - Val samples: {len(preprocessed['val_data'])}")
+        logger.info(f"  - Avg length: {preprocessed['metadata']['avg_length']:.0f} chars")
+
+        # Save processed data for training (optional, for debugging)
+        output_dir = f"./training_data/{task_id}"
+        os.makedirs(output_dir, exist_ok=True)
+        preprocessor.save_to_jsonl(preprocessed['train_data'], f"{output_dir}/train.jsonl")
+        preprocessor.save_to_jsonl(preprocessed['val_data'], f"{output_dir}/val.jsonl")
+        with open(f"{output_dir}/metadata.json", 'w', encoding='utf-8') as f:
+            json.dump(preprocessed['metadata'], f, ensure_ascii=False, indent=2)
+        logger.info(f"  - Saved training data to: {output_dir}")
 
         # Update initial status
-        update_task_progress(task_id, {
+        updated = update_task_progress(task_id, {
             "status": "PROCESSING",
             "progress": 0,
         })
+        if not updated:
+            # Task not found in database, log and return
+            logger.error(f"Task {task_id} not found in database, stopping training")
+            return {
+                "task_id": task_id,
+                "status": "FAILED",
+                "error": f"Task {task_id} not found in database"
+            }
 
         # Start training
         logger.info("Step 2: Starting QLoRA training...")
@@ -299,13 +369,14 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
             db_progress_data = {k: v for k, v in progress_data.items() if k != "log_lines"}
             updated = update_task_progress(task_id, db_progress_data)
             if not updated:
-                # Task not found in database, stop training
-                raise RuntimeError(f"Task {task_id} not found in database, stopping training")
+                # Task not found in database, log and skip progress update
+                logger.warning(f"Task {task_id} not found in database, skipping progress update")
 
         adapter_path = training_service.training_progress(
             task_id=task_id,
             total_epochs=total_epochs,
-            training_text=preprocessed['cleaned_text'],
+            training_text=preprocessed['train_data'],  # Use formatted training samples
+            validation_text=preprocessed['val_data'],  # Use validation samples
             config=config,
             on_progress=on_progress,
         )

@@ -1,7 +1,10 @@
 """Text preprocessing service for training data preparation."""
 
 import re
-from typing import List
+import json
+import random
+from dataclasses import dataclass, asdict
+from typing import List, Dict, Tuple, Optional
 
 
 class PreprocessingService:
@@ -132,6 +135,497 @@ class PreprocessingService:
                 # v0.2+: Add instruction templates
             })
         return formatted
+
+
+# ==================== Data Preprocessor (New Implementation) ====================
+
+@dataclass
+class TextChunk:
+    """文本分块数据结构"""
+    content: str
+    start_pos: int
+    end_pos: int
+    chunk_type: str  # 'narration', 'dialogue', 'description'
+    source: str
+
+
+class DataPreprocessor:
+    """
+    数据预处理器 - 基于 docs/preprocess.md 设计
+
+    支持功能：
+    1. 纯中文/纯英文/中英文混合输入处理
+    2. 语义边界分块策略（方案C）
+    3. 训练样本构造（类型1续写任务、类型2风格模仿任务）
+    4. 自定义JSONL格式输出
+    """
+
+    def __init__(self, style_config: Optional[dict] = None):
+        """
+        初始化数据预处理器
+
+        Args:
+            style_config: 风格配置字典
+                - target_style: 目标风格标签，如 "<鲁迅风格>"
+                - system_prompt: 系统提示词
+                - style_name: 风格名称（用于生成system_prompt）
+                - style_description: 风格描述（用于生成system_prompt）
+        """
+        self.style_config = style_config or {}
+        self.style_tag = self.style_config.get('target_style', '<自定义风格>')
+        self.system_prompt = self._generate_system_prompt()
+        self.chunks: List[TextChunk] = []
+
+    def _generate_system_prompt(self) -> str:
+        """根据风格配置生成系统提示词"""
+        if 'system_prompt' in self.style_config:
+            return self.style_config['system_prompt']
+
+        style_name = self.style_config.get('style_name', '自定义')
+        style_desc = self.style_config.get('style_description', '')
+
+        if style_desc:
+            return f"你是{style_name}风格的文章生成助手。{style_desc}"
+        return f"你是{style_name}风格的文章生成助手，擅长模仿该风格的写作特点。"
+
+    def _detect_language(self, text: str) -> str:
+        """
+        检测文本语言类型
+
+        Returns:
+            'chinese': 纯中文
+            'english': 纯英文
+            'mixed': 中英文混合
+        """
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', text))
+        english_chars = len(re.findall(r'[a-zA-Z]', text))
+        total_chars = len(text.strip())
+
+        if total_chars == 0:
+            return 'mixed'
+
+        chinese_ratio = chinese_chars / total_chars
+        english_ratio = english_chars / total_chars
+
+        if chinese_ratio > 0.8:
+            return 'chinese'
+        elif english_ratio > 0.8:
+            return 'english'
+        else:
+            return 'mixed'
+
+    def clean_text(self, raw_text: str) -> str:
+        """
+        清洗原始文本 - 支持中文/英文/混合
+
+        处理步骤：
+        1. 去除多余空白
+        2. 标准化标点（英文标点→中文标点，适用于中文/混合文本）
+        3. 去除特殊字符和控制字符
+        4. 段落边界规范化
+        5. 去除页眉页脚模式（如页码、章节标记）
+        """
+        text = raw_text
+        lang = self._detect_language(text)
+
+        # 1. 规范化换行符
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+        # 2. 去除控制字符（保留换行）
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+
+        # 3. 根据语言类型处理标点
+        if lang in ('chinese', 'mixed'):
+            # 英文标点转为中文标点
+            punct_map = {
+                ',': '，', '.': '。', '?': '？', '!': '！',
+                ':': '：', ';': '；', '"': '"', '"': '"',
+                "'": ''', "'": ''', '(': '（', ')': '）',
+                '[': '【', ']': '】', '{': '｛', '}': '｝'
+            }
+            for en_punct, cn_punct in punct_map.items():
+                text = text.replace(en_punct, cn_punct)
+
+        # 4. 去除页眉页脚模式（如 "第X页"、"Page X of Y"）
+        text = re.sub(r'第\s*\d+\s*[页頁]', '', text)
+        text = re.sub(r'Page\s+\d+\s*(of|/|)\s*\d*', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'-\s*\d+\s*-', '', text)
+
+        # 5. 规范化空白字符
+        # 保留段落间的换行，但去除行内多余空白
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            # 去除行首行尾空白
+            line = line.strip()
+            # 将行内多个空白合并为一个
+            line = re.sub(r'\s+', ' ', line)
+            if line:  # 只保留非空行
+                cleaned_lines.append(line)
+
+        # 段落间保留单个换行
+        text = '\n'.join(cleaned_lines)
+
+        return text.strip()
+
+    def _find_semantic_boundaries(self, text: str) -> List[int]:
+        """
+        识别文本中的语义边界位置
+
+        优先级：段落边界 > 对话结束 > 章节标题 > 句子结束
+        """
+        boundaries = []
+
+        # 1. 段落边界（两个换行）
+        for match in re.finditer(r'\n\s*\n', text):
+            boundaries.append(match.end())
+
+        # 2. 对话结束（引号后）- 支持中文和英文引号
+        dialogue_patterns = [
+            r'[」』""''」』].{0,5}[\n。！？]',
+            r'["\'"\'].{0,10}[\n.!?]'
+        ]
+        for pattern in dialogue_patterns:
+            for match in re.finditer(pattern, text):
+                boundaries.append(match.end())
+
+        # 3. 章节标题（如：第一章、一、等）
+        chapter_patterns = [
+            r'[第卷][一二三四五六七八九十百千\d]+[章节回篇]',
+            r'^[一二三四五六七八九十]+[、.．]',
+            r'^Chapter\s+\d+',
+            r'^\d+\s*[.．]'
+        ]
+        for pattern in chapter_patterns:
+            for match in re.finditer(pattern, text, re.MULTILINE):
+                boundaries.append(match.start())
+
+        # 4. 句子结束（。！？.!?）- 优先级最低
+        for match in re.finditer(r'[。！？.!?]+\s*', text):
+            boundaries.append(match.end())
+
+        return sorted(set(boundaries))
+
+    def _find_optimal_split(self, text: str, start: int, target: int,
+                           boundaries: List[int]) -> int:
+        """
+        在目标长度附近寻找最佳语义边界
+
+        Args:
+            text: 完整文本
+            start: 当前起始位置
+            target: 目标块长度
+            boundaries: 语义边界位置列表
+
+        Returns:
+            最佳切分位置
+        """
+        ideal_end = start + target
+        max_end = min(start + int(target * 1.5), len(text))
+        min_end = start + int(target * 0.5)  # 至少达到目标长度的一半
+
+        # 在理想位置±20%范围内寻找边界
+        candidates = [b for b in boundaries if min_end <= b <= max_end]
+
+        if candidates:
+            # 选择最接近理想长度的边界
+            return min(candidates, key=lambda x: abs(x - ideal_end))
+        else:
+            # 回退：在目标位置寻找最近的句子结束
+            fallback_search_start = min(ideal_end, len(text) - 1)
+            fallback = text.find('。', fallback_search_start)
+            if fallback != -1 and fallback < max_end:
+                return fallback + 1
+
+            # 最终回退：按目标长度硬切分
+            return min(ideal_end, len(text))
+
+    def _classify_chunk(self, content: str) -> str:
+        """
+        分类文本块类型（用于后续多样化训练任务）
+
+        Returns:
+            'dialogue': 对话为主
+            'description': 描写为主
+            'narration': 叙述为主
+        """
+        # 对话标记
+        dialogue_marks = ['「', '『', '"', '"', ''', ''', '"', "'"]
+        dialogue_count = sum(content.count(m) for m in dialogue_marks)
+
+        # 描写关键词（中文和英文）
+        desc_keywords = ['描写', '景象', '看见', '只见', 'scene', 'describe',
+                        'looked', 'saw', 'appearance', 'landscape']
+        desc_count = sum(content.count(w) for w in desc_keywords)
+
+        if dialogue_count >= 4:
+            return 'dialogue'
+        elif desc_count >= 2:
+            return 'description'
+        else:
+            return 'narration'
+
+    def semantic_chunking(self, text: str, target_length: int = 1024,
+                         overlap: int = 256) -> List[TextChunk]:
+        """
+        语义边界分块策略（方案C）
+
+        优先在以下位置切分：段落结束 > 对话结束 > 章节标题 > 句子结束
+        目标块大小：512-2048字符（默认1024）
+
+        Args:
+            text: 清洗后的文本
+            target_length: 目标块长度（字符数）
+            overlap: 重叠窗口大小（保持上下文连贯性）
+
+        Returns:
+            TextChunk对象列表
+        """
+        # 识别语义边界
+        boundaries = self._find_semantic_boundaries(text)
+
+        chunks = []
+        start = 0
+        chunk_id = 0
+        text_len = len(text)
+
+        while start < text_len:
+            # 寻找最佳切分点
+            end = self._find_optimal_split(text, start, target_length, boundaries)
+
+            content = text[start:end].strip()
+            if len(content) > 50:  # 过滤过短片段
+                chunk_type = self._classify_chunk(content)
+                chunks.append(TextChunk(
+                    content=content,
+                    start_pos=start,
+                    end_pos=end,
+                    chunk_type=chunk_type,
+                    source=f"chunk_{chunk_id}"
+                ))
+                chunk_id += 1
+
+            # 移动到下一个位置（带重叠）
+            start = end - overlap if end < text_len else text_len
+
+        self.chunks = chunks
+        return chunks
+
+    def _create_continuation_task(self, current: TextChunk, next_chunk: TextChunk) -> Dict:
+        """
+        构造续写任务（类型1）
+
+        取当前块的前半部分作为提示，后半部分+下一块作为答案
+        """
+        split_point = len(current.content) // 2
+        prompt_text = current.content[:split_point].strip()
+        completion = current.content[split_point:].strip()
+
+        # 添加下一块的开头部分（最多500字符）
+        next_part = next_chunk.content[:500].strip()
+        if next_part:
+            completion += " " + next_part
+
+        return {
+            "system": self.system_prompt,
+            "instruction": f"{self.style_tag} 请续写：{prompt_text}",
+            "input": "",
+            "output": completion,
+            "task_type": "continuation",
+            "metadata": {
+                "chunk_id": current.source,
+                "prompt_length": len(prompt_text),
+                "output_length": len(completion)
+            }
+        }
+
+    def _create_style_imitation_task(self, chunk: TextChunk) -> Dict:
+        """
+        构造风格模仿任务（类型2）
+
+        提取核心内容要求用目标风格重写
+        """
+        # 取前200字符作为场景描述提示
+        input_text = chunk.content[:200].strip()
+        if len(chunk.content) > 200:
+            input_text += "..."
+
+        return {
+            "system": self.system_prompt,
+            "instruction": f"{self.style_tag} 请用指定风格描写以下场景：",
+            "input": input_text,
+            "output": chunk.content,
+            "task_type": "style_imitation",
+            "metadata": {
+                "chunk_id": chunk.source,
+                "chunk_type": chunk.chunk_type,
+                "content_length": len(chunk.content)
+            }
+        }
+
+    def generate_training_samples(self, chunks: List[TextChunk]) -> List[Dict]:
+        """
+        为每个分块生成训练样本
+
+        生成类型：
+        - 类型1：续写任务（如果有下文）
+        - 类型2：风格模仿任务
+        忽略类型3：问答任务（根据需求）
+        """
+        samples = []
+
+        for i, chunk in enumerate(chunks):
+            # 类型1：续写任务（如果有下一个块）
+            if i < len(chunks) - 1:
+                sample = self._create_continuation_task(chunk, chunks[i + 1])
+                samples.append(sample)
+
+            # 类型2：风格模仿任务
+            sample = self._create_style_imitation_task(chunk)
+            samples.append(sample)
+
+            # 注意：根据需求，类型3（问答任务）被忽略
+
+        return samples
+
+    def to_custom_jsonl(self, samples: List[Dict]) -> List[Dict]:
+        """
+        转换为自定义JSONL格式
+
+        输出格式：
+        {
+            "system": "系统提示词",
+            "conversations": [
+                {"from": "human", "value": "用户指令\n输入内容"},
+                {"from": "gpt", "value": "输出内容"}
+            ],
+            "task_type": "continuation|style_imitation",
+            "metadata": {...}
+        }
+        """
+        jsonl_data = []
+
+        for i, sample in enumerate(samples):
+            # 构造对话内容
+            human_value = sample["instruction"]
+            if sample["input"]:
+                human_value += f"\n{sample['input']}"
+
+            conversation = {
+                "id": f"sample_{i:06d}",
+                "system": sample["system"],
+                "conversations": [
+                    {"from": "human", "value": human_value},
+                    {"from": "gpt", "value": sample["output"]}
+                ],
+                "task_type": sample.get("task_type", "general"),
+                "metadata": sample.get("metadata", {})
+            }
+            jsonl_data.append(conversation)
+
+        return jsonl_data
+
+    def validate_and_split(self, data: List[Dict],
+                          train_ratio: float = 0.95) -> Tuple[List[Dict], List[Dict], Dict]:
+        """
+        验证数据质量并划分训练/验证集
+
+        Returns:
+            (train_data, val_data, metadata)
+        """
+        # 过滤异常样本
+        valid_data = []
+        for item in data:
+            try:
+                output = item["conversations"][1]["value"]  # gpt response
+                output_len = len(output)
+
+                # 过滤过长或过短
+                if 50 < output_len < 3000:
+                    valid_data.append(item)
+            except (KeyError, IndexError):
+                continue
+
+        # 统计信息
+        lengths = [len(d["conversations"][1]["value"]) for d in valid_data]
+        short_count = sum(1 for l in lengths if l < 500)
+        medium_count = sum(1 for l in lengths if 500 <= l < 1500)
+        long_count = sum(1 for l in lengths if l >= 1500)
+
+        metadata = {
+            "total_samples": len(data),
+            "valid_samples": len(valid_data),
+            "avg_length": sum(lengths) / len(lengths) if lengths else 0,
+            "length_distribution": {
+                "short(<500)": short_count,
+                "medium(500-1500)": medium_count,
+                "long(>1500)": long_count
+            },
+            "train_ratio": train_ratio,
+            "val_ratio": 1 - train_ratio
+        }
+
+        # 随机划分
+        random.shuffle(valid_data)
+        split_idx = int(len(valid_data) * train_ratio)
+
+        return valid_data[:split_idx], valid_data[split_idx:], metadata
+
+    def process(self, raw_text: str, target_length: int = 1024,
+                overlap: int = 256, train_ratio: float = 0.95) -> Dict:
+        """
+        完整预处理流程
+
+        Pipeline: 清洗 → 语义分块 → 生成样本 → 格式转换 → 验证划分
+
+        Args:
+            raw_text: 原始输入文本
+            target_length: 目标分块长度
+            overlap: 重叠窗口大小
+            train_ratio: 训练集比例
+
+        Returns:
+            包含train_data, val_data, metadata的字典
+        """
+        # Step 1: 清洗文本
+        clean_text = self.clean_text(raw_text)
+
+        # Step 2: 语义分块
+        chunks = self.semantic_chunking(clean_text, target_length, overlap)
+
+        # Step 3: 生成训练样本
+        samples = self.generate_training_samples(chunks)
+
+        # Step 4: 转换为自定义JSONL格式
+        formatted_data = self.to_custom_jsonl(samples)
+
+        # Step 5: 验证和划分
+        train_data, val_data, metadata = self.validate_and_split(formatted_data, train_ratio)
+
+        # 更新元数据
+        metadata.update({
+            "language": self._detect_language(raw_text),
+            "original_length": len(raw_text),
+            "cleaned_length": len(clean_text),
+            "chunk_count": len(chunks),
+            "sample_count": len(samples),
+            "style_tag": self.style_tag,
+            "system_prompt": self.system_prompt
+        })
+
+        return {
+            "train_data": train_data,
+            "val_data": val_data,
+            "metadata": metadata,
+            "chunks": [asdict(c) for c in chunks],
+            "samples": samples
+        }
+
+    def save_to_jsonl(self, data: List[Dict], filepath: str):
+        """保存数据为JSONL格式"""
+        with open(filepath, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False) + '\n')
 
 
 # Global preprocessing service instance

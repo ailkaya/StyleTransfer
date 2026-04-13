@@ -86,7 +86,8 @@ const statusClass = computed(() => {
     'completed': 'status-completed',
     'failed': 'status-failed',
     'available': 'status-available',
-    'evaluating': 'status-evaluating'
+    'evaluating': 'status-evaluating',
+    'preprocessing': 'status-preprocessing'
   }
   return classes[props.style.status] || 'status-pending'
 })
@@ -98,13 +99,14 @@ const statusLabel = computed(() => {
     'completed': '已完成',
     'failed': '失败',
     'available': '可用',
-    'evaluating': '评估中'
+    'evaluating': '评估中',
+    'preprocessing': '处理训练数据'
   }
   return labels[props.style.status] || props.style.status
 })
 
 const isProcessing = computed(() =>
-  props.style.status === 'training' || props.style.status === 'evaluating'
+  props.style.status === 'training' || props.style.status === 'evaluating' || props.style.status === 'preprocessing'
 )
 
 const formattedTime = computed(() => {
@@ -176,6 +178,10 @@ const formattedTime = computed(() => {
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
 }
 
+.list-icon.preprocessing {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
 .list-text {
   min-width: 0;
 }
@@ -224,6 +230,15 @@ const formattedTime = computed(() => {
 .list-status.evaluating .status-indicator {
   background: #8b5cf6;
   box-shadow: 0 0 6px #8b5cf6;
+}
+
+.list-status.preprocessing {
+  color: #0891b2;
+}
+
+.list-status.preprocessing .status-indicator {
+  background: #06b6d4;
+  box-shadow: 0 0 6px #06b6d4;
 }
 
 .list-status .status-indicator {

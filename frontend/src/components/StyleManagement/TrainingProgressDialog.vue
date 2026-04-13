@@ -196,7 +196,7 @@ const progressColors = [
 ]
 
 const isProcessing = computed(() => {
-  return task.value?.status === 'PENDING' || task.value?.status === 'PROCESSING'
+  return task.value?.status === 'PENDING' || task.value?.status === 'PROCESSING' || props.styleStatus === 'preprocessing'
 })
 
 const isEvaluating = computed(() => {
@@ -214,7 +214,8 @@ const statusClass = computed(() => {
     'training': 'status-training',
     'evaluating': 'status-evaluating',
     'available': 'status-completed',
-    'failed': 'status-failed'
+    'failed': 'status-failed',
+    'preprocessing': 'status-preprocessing'
   }
   return classes[status] || 'status-pending'
 })
@@ -230,7 +231,8 @@ const statusText = computed(() => {
     'training': '训练中',
     'evaluating': '评估中',
     'available': '可用',
-    'failed': '失败'
+    'failed': '失败',
+    'preprocessing': '处理训练数据'
   }
   return texts[status] || status
 })
@@ -443,6 +445,10 @@ defineExpose({
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
 }
 
+.dialog-icon.status-preprocessing {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
 .dialog-title-wrapper {
   flex: 1;
   display: flex;
@@ -487,6 +493,10 @@ defineExpose({
 
 .status-badge.status-evaluating {
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+}
+
+.status-badge.status-preprocessing {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
 }
 
 .dialog-body {
