@@ -133,7 +133,34 @@ def _estimate_fluency(text: str) -> float:
     return fluency
 
 
-def _estimate_style_match(target_text: str, target_style: str) -> float:
+def _extract_keywords_from_text(text: str, top_n: int = 50) -> List[str]:
+    """Extract keywords from training text using simple frequency analysis."""
+    import jieba
+
+    # Tokenize text
+    words = list(jieba.cut(text))
+
+    # Filter: only keep Chinese words with length >= 2 and not stopwords
+    stopwords = set(['的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+                     '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+                     '你', '会', '着', '没有', '看', '好', '自己', '这'])
+
+    filtered_words = [w for w in words
+                      if len(w) >= 2
+                      and re.match(r'^[\u4e00-\u9fff]+$', w)
+                      and w not in stopwords]
+
+    # Count frequency
+    word_freq = {}
+    for word in filtered_words:
+        word_freq[word] = word_freq.get(word, 0) + 1
+
+    # Get top N keywords
+    sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+    return [word for word, freq in sorted_words[:top_n]]
+
+
+def _estimate_style_match(task_id: str, target_text: str, target_style: str) -> float:
     """Estimate style matching score based on keywords."""
     style_keywords = {
         '幽默': ['哈哈', '笑话', '有趣', '搞笑', '逗', '乐', '笑', '好玩', '滑稽', '诙谐'],
@@ -147,8 +174,39 @@ def _estimate_style_match(target_text: str, target_style: str) -> float:
 
     keywords = style_keywords.get(target_style, [])
 
+    # If predefined keywords not found, extract from training data
     if not keywords:
-        return 70.0
+        try:
+            # Import here to avoid circular imports
+            from ..celery_app.tasks import get_sync_session
+            from sqlalchemy import select
+            from ..models import Task
+
+            session = get_sync_session()
+            try:
+                stmt = select(Task).where(Task.id == task_id)
+                result = session.execute(stmt)
+                task = result.scalar_one_or_none()
+
+                if task and task.training_data_path:
+                    original_file = os.path.join(task.training_data_path, 'original.txt')
+                    if os.path.exists(original_file):
+                        with open(original_file, 'r', encoding='utf-8') as f:
+                            original_text = f.read()
+                        # Extract keywords from original training text
+                        keywords = _extract_keywords_from_text(original_text, top_n=50)
+                        logger.info(f"Extracted {len(keywords)} keywords from training data for style '{target_style}'")
+                    else:
+                        logger.warning(f"Original file not found: {original_file}")
+                        return 70.0
+                else:
+                    logger.warning(f"No training_data_path found for task {task_id}")
+                    return 70.0
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Failed to extract keywords from training data: {e}")
+            return 70.0
 
     text_lower = target_text.lower()
     keyword_count = sum(1 for kw in keywords if kw in text_lower)
@@ -157,6 +215,7 @@ def _estimate_style_match(target_text: str, target_style: str) -> float:
 
 
 def calculate_metrics(
+    task_id: str,
     source_texts: List[str],
     target_texts: List[str],
     target_style: str,
@@ -190,7 +249,7 @@ def calculate_metrics(
     for src, tgt in zip(source_texts, target_texts):
         semantic_scores.append(_calculate_semantic_similarity(src, tgt))
         char_retentions.append(_calculate_char_retention(src, tgt))
-        style_scores.append(_estimate_style_match(tgt, target_style))
+        style_scores.append(_estimate_style_match(task_id, tgt, target_style))
         fluency_scores.append(_estimate_fluency(tgt))
 
     length_ratio, avg_source_len, avg_target_len = _calculate_length_ratio(
@@ -387,6 +446,7 @@ class EvaluationService:
             response_times = [0.0] * len(source_texts)
 
         metrics = calculate_metrics(
+            task_id=task_id,
             source_texts=source_texts,
             target_texts=target_texts,
             target_style=style.target_style,

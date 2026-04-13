@@ -336,9 +336,27 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
         os.makedirs(output_dir, exist_ok=True)
         preprocessor.save_to_jsonl(preprocessed['train_data'], f"{output_dir}/train.jsonl")
         preprocessor.save_to_jsonl(preprocessed['val_data'], f"{output_dir}/val.jsonl")
+        with open(f"{output_dir}/original.txt", 'w', encoding='utf-8') as f:
+            f.write(training_text)
         with open(f"{output_dir}/metadata.json", 'w', encoding='utf-8') as f:
             json.dump(preprocessed['metadata'], f, ensure_ascii=False, indent=2)
         logger.info(f"  - Saved training data to: {output_dir}")
+
+        # Save training data path to database
+        session = get_sync_session()
+        try:
+            stmt = select(Task).where(Task.id == task_id)
+            result = session.execute(stmt)
+            task = result.scalar_one_or_none()
+            if task:
+                task.training_data_path = output_dir
+                session.commit()
+                logger.info(f"  - Updated task training_data_path: {output_dir}")
+        except Exception as e:
+            logger.error(f"Failed to update training_data_path: {e}")
+            session.rollback()
+        finally:
+            session.close()
 
         # Update initial status
         updated = update_task_progress(task_id, {
