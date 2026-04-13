@@ -61,6 +61,7 @@ class StyleListItem(BaseModel):
     description: Optional[str] = None
     target_style: str
     status: str
+    task_status: Optional[str] = None  # Latest task status
     created_at: datetime
 
     model_config = {"from_attributes": True}

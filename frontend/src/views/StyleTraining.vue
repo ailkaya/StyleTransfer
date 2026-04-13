@@ -132,7 +132,7 @@
                   <div class="style-option">
                     <span class="style-name">{{ style.name }}</span>
                     <span class="style-tag">{{ style.target_style }}</span>
-                    <el-tag v-if="style.status === 'available'" type="success" size="small">可用</el-tag>
+                    <el-tag v-if="style.task_status === 'COMPLETED'" type="success" size="small">可用</el-tag>
                   </div>
                 </el-option>
               </el-select>

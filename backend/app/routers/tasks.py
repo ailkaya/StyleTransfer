@@ -107,12 +107,19 @@ async def create_task(
         )
 
     # Update style status
-    style.status = "training"
+    style.status = "pending"
     style.base_model = task_data.base_model
-    logger.info(f"Updated style status to 'training'")
+    if not style.base_model or not style.base_model.strip():
+        logger.warning(f"Style base_model is empty for style {task_data.style_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Base model is required for training"
+        )
+    logger.info(f"Updated style status to 'pending'")
 
     # Create task
     config_dict = task_data.config.model_dump() if task_data.config else {}
+    config_dict["base_model"] = style.base_model
 
     new_task = Task(
         style_id=task_data.style_id,

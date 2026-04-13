@@ -196,7 +196,7 @@ const progressColors = [
 ]
 
 const isProcessing = computed(() => {
-  return task.value?.status === 'PENDING' || task.value?.status === 'PROCESSING' || props.styleStatus === 'preprocessing'
+  return task.value?.status === 'PREPROCESSING' || task.value?.status === 'PROCESSING' || props.styleStatus === 'preprocessing'
 })
 
 const isEvaluating = computed(() => {
@@ -224,6 +224,7 @@ const statusText = computed(() => {
   const status = task.value?.status || props.styleStatus
   const texts = {
     'PENDING': '等待中',
+    'PREPROCESSING': '数据处理中',
     'PROCESSING': '训练中',
     'COMPLETED': '已完成',
     'FAILED': '失败',
@@ -232,7 +233,7 @@ const statusText = computed(() => {
     'evaluating': '评估中',
     'available': '可用',
     'failed': '失败',
-    'preprocessing': '处理训练数据'
+    'preprocessing': '数据处理中'
   }
   return texts[status] || status
 })

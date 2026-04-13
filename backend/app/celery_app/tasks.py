@@ -11,6 +11,7 @@ from sqlalchemy.future import select
 from ..models import Task, Style, Evaluation
 from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service, DataPreprocessor
 from ..utils import get_logger
+from ..db_operations import DatabaseOperations
 
 # Create Celery app
 celery_app = Celery("style_transfer")
@@ -24,250 +25,12 @@ celery_app.conf.broker_heartbeat = 0
 # Logger
 logger = get_logger(__name__)
 
-# Database setup for sync context (Celery runs synchronously)
-# We'll use sync database operations in Celery tasks
-SYNC_DATABASE_URL = os.getenv(
-    "SYNC_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/style_transfer"
-)
-from sqlalchemy import create_engine
+from config import settings
 
-# Lazy initialization to avoid import delays
-_sync_engine = None
-_SyncSessionLocal = None
-
-def get_sync_engine():
-    global _sync_engine
-    if _sync_engine is None:
-        logger.debug("Creating sync database engine...")
-        _sync_engine = create_engine(SYNC_DATABASE_URL)
-        logger.debug("Sync database engine created")
-    return _sync_engine
-
-def get_sync_session():
-    global _SyncSessionLocal
-    if _SyncSessionLocal is None:
-        logger.debug("Creating sync session factory...")
-        _SyncSessionLocal = sessionmaker(bind=get_sync_engine())
-        logger.debug("Sync session factory created")
-    return _SyncSessionLocal()
-
-logger.info("Celery tasks module loaded")
-
+APPLY_COMMENT_ADJUSTMENT = settings.APPLY_COMMENT_ADJUSTMENT
 
 # Track missing tasks to avoid repeated error logging
 _missing_tasks_cache = set()
-
-def update_task_progress(task_id: str, progress_data: dict):
-    """Update task progress in database."""
-    # Skip if we already know this task is missing
-    if task_id in _missing_tasks_cache:
-        return False
-
-    logger.debug(f"Updating progress for task {task_id}: {progress_data.get('status')} - {progress_data.get('progress')}%")
-
-    session = get_sync_session()
-    try:
-        stmt = select(Task).where(Task.id == task_id)
-        result = session.execute(stmt)
-        task = result.scalar_one_or_none()
-
-        if task:
-            old_status = task.status
-            old_progress = task.progress
-
-            task.status = progress_data.get("status", task.status)
-            task.progress = progress_data.get("progress", task.progress)
-            task.current_epoch = progress_data.get("current_epoch")
-            task.current_loss = progress_data.get("current_loss")
-            task.elapsed_time = progress_data.get("elapsed_time")
-            task.estimated_remaining = progress_data.get("estimated_remaining")
-
-            if progress_data.get("status") in ["COMPLETED", "FAILED"]:
-                task.completed_at = datetime.utcnow()
-
-            session.commit()
-
-            logger.debug(
-                f"Task {task_id} updated: {old_status}({old_progress}%) -> "
-                f"{task.status}({task.progress}%)"
-            )
-
-            return True
-        else:
-            # Only log error once per task
-            if task_id not in _missing_tasks_cache:
-                _missing_tasks_cache.add(task_id)
-                logger.error(f"Task {task_id} not found in database. Subsequent updates will be skipped.")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to update task {task_id} progress: {e}", exc_info=True)
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-def update_style_status(style_id: str, status: str, adapter_path: str = None) -> bool:
-    """
-    Update style status in database.
-
-    Args:
-        style_id: Style ID
-        status: New status (pending, preprocessing, training, evaluating, available, failed)
-        adapter_path: Optional adapter path to set
-
-    Returns:
-        True if successful, False otherwise
-    """
-    session = get_sync_session()
-    try:
-        stmt = select(Style).where(Style.id == style_id)
-        result = session.execute(stmt)
-        style = result.scalar_one_or_none()
-
-        if style:
-            old_status = style.status
-            style.status = status
-            if adapter_path is not None:
-                style.adapter_path = adapter_path
-            session.commit()
-            logger.info(f"Style {style_id} status updated: {old_status} -> {status}")
-            return True
-        else:
-            logger.warning(f"Style {style_id} not found for status update")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to update style {style_id} status: {e}")
-        session.rollback()
-        return False
-    finally:
-        session.close()
-
-
-def update_task_result(task_id: str, adapter_path: str = None, error: str = None):
-    """Update task result after completion."""
-    logger.info(f"Updating task result for {task_id}: adapter_path={adapter_path is not None}, error={error is not None}")
-
-    session = get_sync_session()
-    try:
-        stmt = select(Task).where(Task.id == task_id)
-        result = session.execute(stmt)
-        task = result.scalar_one_or_none()
-
-        if task:
-            if adapter_path:
-                task.result_path = adapter_path
-                task.status = "COMPLETED"
-                task.progress = 100
-
-                # Update style status
-                from ..models import Style
-                style_stmt = select(Style).where(Style.id == task.style_id)
-                style_result = session.execute(style_stmt)
-                style = style_result.scalar_one_or_none()
-                if style:
-                    update_style_status(task.style_id, "available", adapter_path)
-
-            if error:
-                task.error_message = error
-                task.status = "FAILED"
-
-            task.completed_at = datetime.utcnow()
-            session.commit()
-
-            logger.info(f"Task {task_id} completed with status: {task.status}")
-        else:
-            # Only log error once per task
-            if task_id not in _missing_tasks_cache:
-                _missing_tasks_cache.add(task_id)
-                logger.error(f"Task {task_id} not found when updating result")
-    except Exception as e:
-        logger.error(f"Failed to update task {task_id} result: {e}", exc_info=True)
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
-    """Run evaluation after training and save results to database."""
-    logger.info(f"Starting evaluation for task {task_id}")
-
-    session = get_sync_session()
-    try:
-        # Set status to EVALUATING
-        stmt = select(Task).where(Task.id == task_id)
-        result = session.execute(stmt)
-        task = result.scalar_one_or_none()
-
-        if not task:
-            logger.error(f"Task {task_id} not found for evaluation")
-            return
-
-        task.status = "EVALUATING"
-
-        # Update style status to evaluating
-        style_stmt = select(Style).where(Style.id == style_id)
-        style_result = session.execute(style_stmt)
-        style = style_result.scalar_one_or_none()
-
-        update_style_status(style_id, "evaluating")
-
-        # Run evaluation using mock data for now
-        # In production, this would use the actual inference service
-        try:
-            inference_service = get_inference_service()
-            evaluation_data = asyncio.run(evaluation_service.generate_evaluation_data(task_id, inference_service))
-
-            # Save evaluation data to separate Evaluation table
-            import json
-            evaluation = Evaluation(
-                task_id=task_id,
-                style_id=style_id,
-                task_name=task.name or "未命名任务",
-                target_style=style.target_style if style else "",
-                overall_score=evaluation_data.get("overall_score", 0),
-                sample_count=evaluation_data.get("sample_count", 0),
-                semantic_score=evaluation_data.get("semantic_score", 0),
-                char_retention=evaluation_data.get("char_retention", 0),
-                style_score=evaluation_data.get("style_score", 0),
-                fluency_score=evaluation_data.get("fluency_score", 0),
-                vocab_diversity=evaluation_data.get("vocab_diversity", 0),
-                length_ratio=evaluation_data.get("length_ratio", 0),
-                avg_response_time=evaluation_data.get("avg_response_time", 0),
-                samples=json.dumps(evaluation_data.get("samples", []))
-            )
-            session.add(evaluation)
-
-            task.status = "COMPLETED"
-            task.progress = 100
-            task.completed_at = datetime.utcnow()
-
-            session.commit()
-
-            # Update style to available
-            update_style_status(style_id, "available", adapter_path)
-
-            logger.info(f"Evaluation completed for task {task_id}")
-
-        except Exception as eval_error:
-            logger.error(f"Evaluation failed for task {task_id}: {eval_error}")
-            # Even if evaluation fails, mark as completed (with empty evaluation)
-            task.status = "COMPLETED"
-            task.evaluation_data = None
-            task.completed_at = datetime.utcnow()
-
-            session.commit()
-
-            update_style_status(style_id, "available", adapter_path)
-
-    except Exception as e:
-        logger.error(f"Failed to run evaluation for task {task_id}: {e}")
-        session.rollback()
-        raise
-    finally:
-        session.close()
 
 
 @celery_app.task(bind=True, max_retries=1, default_retry_delay=5)
@@ -296,24 +59,25 @@ def train_style_model(
     logger.info(f"Attempt: {self.request.retries + 1}/4")
     logger.info("=" * 60)
 
+    # Initialize database operations
+    db = DatabaseOperations()
+
     # Update style status to preprocessing
-    update_style_status(style_id, "preprocessing")
+    db.update_style_status(style_id, "preprocessing", None)
+    db.update_task_status(task_id, "PREPROCESSING")
 
     # Get style config for preprocessing
-    session = get_sync_session()
     style_config = {}
     try:
-        style_stmt = select(Style).where(Style.id == style_id)
-        style_result = session.execute(style_stmt)
-        style = style_result.scalar_one_or_none()
+        style = db.get_style(style_id)
         if style:
             style_config = {
                 'target_style': f"<{style.target_style}>",
                 'style_name': style.name,
                 'style_description': style.description or ''
             }
-    finally:
-        session.close()
+    except Exception as e:
+        logger.warning(f"Failed to get style config: {e}")
 
     try:
         # Preprocess training text using DataPreprocessor
@@ -339,34 +103,24 @@ def train_style_model(
         logger.info(f"  - Avg length: {preprocessed['metadata']['avg_length']:.0f} chars")
 
         # Step 2.5: Adjust samples by parent style comment if applicable
-        if parent_style_id:
+        if parent_style_id and APPLY_COMMENT_ADJUSTMENT:
             logger.info(f"Checking for parent style comment: {parent_style_id}")
-            session = get_sync_session()
-            try:
-                from ..models import Evaluation
-                result = session.execute(
-                    select(Evaluation)
-                    .where(Evaluation.style_id == parent_style_id)
-                    .order_by(Evaluation.created_at.desc())
-                )
-                evaluation = result.scalar_one_or_none()
+            evaluation = db.get_latest_evaluation(parent_style_id)
 
-                if evaluation and evaluation.comment:
-                    logger.info(f"Found comment for parent style {parent_style_id}: {evaluation.comment[:50]}...")
-                    try:
-                        inference_service = get_inference_service()
-                        adjusted_train_data = asyncio.run(preprocessor.adjust_samples_by_comment(
-                            preprocessed['train_data'], evaluation.comment, inference_service
-                        ))
-                        adjusted_count = sum(1 for s in adjusted_train_data if s.get('metadata', {}).get('adjusted_by_comment'))
-                        logger.info(f"Adjusted {adjusted_count} samples based on comment")
-                        preprocessed['train_data'] = adjusted_train_data
-                    except Exception as e:
-                        logger.error(f"Failed to adjust samples by comment: {e}")
-                else:
-                    logger.info(f"No comment found for parent style {parent_style_id}")
-            finally:
-                session.close()
+            if evaluation and evaluation.comment:
+                logger.info(f"Found comment for parent style {parent_style_id}: {evaluation.comment[:50]}...")
+                try:
+                    inference_service = get_inference_service()
+                    adjusted_train_data = asyncio.run(preprocessor.adjust_samples_by_comment(
+                        preprocessed['train_data'], evaluation.comment, inference_service
+                    ))
+                    adjusted_count = sum(1 for s in adjusted_train_data if s.get('metadata', {}).get('adjusted_by_comment'))
+                    logger.info(f"Adjusted {adjusted_count} samples based on comment")
+                    preprocessed['train_data'] = adjusted_train_data
+                except Exception as e:
+                    logger.error(f"Failed to adjust samples by comment: {e}")
+            else:
+                logger.info(f"No comment found for parent style {parent_style_id}")
 
         # Save processed data for training (optional, for debugging)
         output_dir = f"./training_data/{task_id}"
@@ -380,23 +134,15 @@ def train_style_model(
         logger.info(f"  - Saved training data to: {output_dir}")
 
         # Save training data path to database
-        session = get_sync_session()
         try:
-            stmt = select(Task).where(Task.id == task_id)
-            result = session.execute(stmt)
-            task = result.scalar_one_or_none()
-            if task:
-                task.training_data_path = output_dir
-                session.commit()
-                logger.info(f"  - Updated task training_data_path: {output_dir}")
+            db.update_task_training_data_path(task_id, output_dir)
+            logger.info(f"  - Updated task training_data_path: {output_dir}")
         except Exception as e:
             logger.error(f"Failed to update training_data_path: {e}")
-            session.rollback()
-        finally:
-            session.close()
 
+        db.update_style_status(style_id, "processing", None)
         # Update initial status
-        updated = update_task_progress(task_id, {
+        updated = db.update_task_progress(task_id, {
             "status": "PROCESSING",
             "progress": 0,
         })
@@ -422,7 +168,7 @@ def train_style_model(
 
             # Strip log_lines before saving to database
             db_progress_data = {k: v for k, v in progress_data.items() if k != "log_lines"}
-            updated = update_task_progress(task_id, db_progress_data)
+            updated = db.update_task_progress(task_id, db_progress_data)
             if not updated:
                 # Task not found in database, log and skip progress update
                 logger.warning(f"Task {task_id} not found in database, skipping progress update")
@@ -442,11 +188,53 @@ def train_style_model(
 
         # Step 4: Run evaluation (this sets status to EVALUATING, then COMPLETED)
         logger.info("Step 4: Running evaluation...")
-        run_evaluation_and_save(task_id, style_id, adapter_path)
+
+        # Run evaluation using DatabaseOperations
+        try:
+            logger.info(f"Starting evaluation for task {task_id}")
+
+            # Update style status to evaluating
+            db.update_style_status(style_id, "evaluating", None)
+            db.update_task_status(task_id, "EVALUATING")
+
+            # Run evaluation
+            inference_service = get_inference_service()
+            evaluation_data = asyncio.run(evaluation_service.generate_evaluation_data(task_id, inference_service))
+
+            # Create evaluation record
+            db.create_evaluation({
+                "task_id": task_id,
+                "style_id": style_id,
+                "task_name": db.get_task(task_id).name or "未命名任务",
+                "target_style": style.target_style if style else "",
+                "overall_score": evaluation_data.get("overall_score", 0),
+                "sample_count": evaluation_data.get("sample_count", 0),
+                "semantic_score": evaluation_data.get("semantic_score", 0),
+                "char_retention": evaluation_data.get("char_retention", 0),
+                "style_score": evaluation_data.get("style_score", 0),
+                "fluency_score": evaluation_data.get("fluency_score", 0),
+                "vocab_diversity": evaluation_data.get("vocab_diversity", 0),
+                "length_ratio": evaluation_data.get("length_ratio", 0),
+                "avg_response_time": evaluation_data.get("avg_response_time", 0),
+                "samples": evaluation_data.get("samples", [])
+            })
+
+            # Complete training (updates both style and task status)
+            db.complete_training(style_id, task_id, adapter_path)
+
+            logger.info(f"Evaluation completed for task {task_id}")
+
+        except Exception as eval_error:
+            logger.error(f"Evaluation failed for task {task_id}: {eval_error}")
+            # Even if evaluation fails, mark as completed (with empty evaluation)
+            db.complete_training(style_id, task_id, adapter_path)
 
         logger.info("=" * 60)
         logger.info(f"Training task {task_id} completed successfully with evaluation")
         logger.info("=" * 60)
+
+        db.update_style_status(style_id, "available", None)
+        db.update_task_status(task_id, "COMPLETED")
 
         return {
             "task_id": task_id,
@@ -457,7 +245,8 @@ def train_style_model(
     except Exception as exc:
         error_msg = str(exc)
         logger.error(f"Training task {task_id} failed: {error_msg}", exc_info=True)
-        update_task_result(task_id, error=error_msg)
+        db.update_task_result(task_id, error=error_msg)
+        db.update_style_status(style_id, "failed", None)
 
         # Retry on failure
         if self.request.retries < 3:
@@ -471,3 +260,6 @@ def train_style_model(
             "status": "FAILED",
             "error": error_msg,
         }
+    finally:
+        # Close database session
+        db.close()

@@ -46,7 +46,6 @@ class TrainingService:
         self.models_dir = os.path.join(os.getcwd(), "models", "adapters")
         os.makedirs(self.models_dir, exist_ok=True)
         self.training_config = {
-            "base_model": getattr(settings, 'LOCAL_BASE_MODEL', 'Qwen/Qwen2.5-7B-Instruct'),
             "lora_r": 16,
             "lora_alpha": 32,
             "lora_dropout": 0.05,
@@ -159,6 +158,10 @@ class TrainingService:
         train_config = self.training_config.copy()
         if config:
             train_config.update(config)
+
+        base_model = train_config.get("base_model")
+        if not base_model:
+            raise ValueError("base_model is required for QLoRA training")
 
         start_time = time.time()
         adapter_dir = os.path.join(self.models_dir, str(task_id))

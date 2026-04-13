@@ -44,7 +44,7 @@ class Task(Base):
         nullable=False,
         default="PENDING",
         index=True,
-        comment="状态: PENDING/PROCESSING/COMPLETED/FAILED/EVALUATING"
+        comment="状态: PENDING/PREPROCESSING/PROCESSING/COMPLETED/FAILED/EVALUATING"
     )
     progress: Mapped[int] = mapped_column(
         Integer,

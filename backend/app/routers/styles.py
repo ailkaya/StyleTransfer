@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 
-from ..models import get_db, Style
+from ..models import get_db, Style, Task
 from ..schemas import (
     Response,
     PaginationParams,
@@ -55,16 +55,40 @@ async def list_styles(
     result = await db.execute(query)
     styles = result.scalars().all()
 
+    # Fetch latest task status for each style
+    style_items = []
+    for style in styles:
+        # Get latest task for this style
+        task_result = await db.execute(
+            select(Task)
+            .where(Task.style_id == style.id)
+            .order_by(Task.created_at.desc())
+            .limit(1)
+        )
+        latest_task = task_result.scalar_one_or_none()
+
+        # Build item with task_status
+        item_data = {
+            "id": str(style.id),
+            "name": style.name,
+            "description": style.description,
+            "target_style": style.target_style,
+            "status": style.status,
+            "task_status": latest_task.status if latest_task else None,
+            "created_at": style.created_at,
+        }
+        style_items.append(StyleListItem.model_validate(item_data))
+
     # Calculate pagination info
     total_pages = (total + page_size - 1) // page_size
 
-    logger.info(f"Found {total} styles, returning {len(styles)} items")
+    logger.info(f"Found {total} styles, returning {len(style_items)} items")
 
     return Response(
         code=200,
         message="success",
         data={
-            "items": [StyleListItem.model_validate(s) for s in styles],
+            "items": style_items,
             "pagination": {
                 "total": total,
                 "page": page,
@@ -207,7 +231,7 @@ async def delete_style(
     style_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a style."""
+    """Delete a style and associated local files."""
     logger.info(f"Deleting style: {style_id}")
 
     result = await db.execute(
@@ -255,15 +279,82 @@ async def delete_style(
         logger.info(f"Resetting style {style_id} status from 'training' to 'pending'")
         style.status = "pending"
 
-    # Delete the style (cascade will handle related messages and tasks)
+    # Collect files to delete before deleting database records
+    import os
+    import shutil
+    files_to_delete = []
+    dirs_to_delete = []
+
+    # 1. Adapter path from style
+    if style.adapter_path:
+        adapter_path = style.adapter_path
+        if os.path.exists(adapter_path):
+            files_to_delete.append(adapter_path)
+            logger.info(f"Will delete adapter: {adapter_path}")
+
+    # 2. Get all tasks for this style to find training data paths
+    tasks_result = await db.execute(
+        select(Task).where(Task.style_id == style_id)
+    )
+    tasks = tasks_result.scalars().all()
+
+    for task in tasks:
+        # Training data path
+        if task.training_data_path and os.path.exists(task.training_data_path):
+            dirs_to_delete.append(task.training_data_path)
+            logger.info(f"Will delete training data: {task.training_data_path}")
+
+        # Result path (adapter files from tasks)
+        if task.result_path and task.result_path != style.adapter_path:
+            if os.path.exists(task.result_path):
+                files_to_delete.append(task.result_path)
+                logger.info(f"Will delete task result: {task.result_path}")
+
+    # Delete the style (cascade will handle related messages and tasks in DB)
     await db.delete(style)
     await db.commit()
 
+    # Delete local files after successful DB deletion
+    deleted_files = []
+    deleted_dirs = []
+    failed_deletions = []
+
+    # Delete files
+    for file_path in files_to_delete:
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                deleted_files.append(file_path)
+                logger.info(f"Deleted file: {file_path}")
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+                deleted_files.append(file_path)
+                logger.info(f"Deleted directory: {file_path}")
+        except Exception as e:
+            failed_deletions.append((file_path, str(e)))
+            logger.error(f"Failed to delete {file_path}: {e}")
+
+    # Delete directories
+    for dir_path in dirs_to_delete:
+        try:
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+                deleted_dirs.append(dir_path)
+                logger.info(f"Deleted directory: {dir_path}")
+        except Exception as e:
+            failed_deletions.append((dir_path, str(e)))
+            logger.error(f"Failed to delete {dir_path}: {e}")
+
     logger.info(f"Style deleted successfully: {style_id}")
+    logger.info(f"Deleted {len(deleted_files)} files/directories, {len(failed_deletions)} failed")
 
     return Response(
         code=200,
         message="Style deleted successfully",
-        data={"id": style_id},
+        data={
+            "id": style_id,
+            "deleted_files": deleted_files + deleted_dirs,
+            "failed_deletions": failed_deletions
+        },
         timestamp=datetime.utcnow(),
     )

@@ -11,7 +11,7 @@ export const useStyleStore = defineStore('style', () => {
 
   // Getters
   const availableStyles = computed(() =>
-    styles.value.filter(s => s.status === 'available' || s.status === 'completed')
+    styles.value.filter(s => s.task_status === 'COMPLETED')
   )
 
   const getStyleById = computed(() => (id) =>

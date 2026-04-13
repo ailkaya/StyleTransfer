@@ -5,12 +5,10 @@ import time
 from typing import List, Optional
 import httpx
 from openai import AsyncOpenAI
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ChatMessage
 from ..utils import get_logger
-from ..models import AsyncSessionLocal, Task
+from ..db_operations import DatabaseOperations
 
 logger = get_logger(__name__)
 
@@ -111,9 +109,8 @@ class InferenceService:
         if not LOCAL_MODEL_AVAILABLE:
             raise RuntimeError("transformers/peft not installed, cannot load local model")
 
-        # Use default base model if not specified
         if base_model_name is None:
-            base_model_name = getattr(settings, 'LOCAL_BASE_MODEL', 'Qwen/Qwen2.5-7B-Instruct')
+            raise RuntimeError("base_model_name is required for loading local model")
 
         logger.info(f"Loading local model: {base_model_name} with adapter: {adapter_path}")
 
@@ -153,13 +150,14 @@ class InferenceService:
         model.eval()
         return model, tokenizer
 
-    def get_style_model(self, style_id: str, adapter_path: Optional[str] = None):
+    def get_style_model(self, style_id: str, adapter_path: Optional[str] = None, base_model_name: Optional[str] = None):
         """
         Get or load cached local model for a style.
 
         Args:
             style_id: Style ID for cache key
             adapter_path: Path to LoRA adapter
+            base_model_name: Base model name (e.g., 'Qwen/Qwen2.5-7B-Instruct')
 
         Returns:
             Tuple of (model, tokenizer)
@@ -171,7 +169,7 @@ class InferenceService:
             # Default adapter path
             adapter_path = os.path.join(settings.MODELS_DIR, "adapters", style_id)
 
-        model, tokenizer = self._load_local_model(adapter_path)
+        model, tokenizer = self._load_local_model(adapter_path, base_model_name)
         self._local_models[style_id] = (model, tokenizer)
         return model, tokenizer
 
@@ -185,15 +183,10 @@ class InferenceService:
         Returns:
             Adapter path (result_path) or None if not found
         """
-        async with AsyncSessionLocal() as session:
+        db = DatabaseOperations(async_mode=True)
+        try:
             # Get the latest completed task for this style
-            result = await session.execute(
-                select(Task)
-                .where(Task.style_id == style_id)
-                .where(Task.status == "COMPLETED")
-                .order_by(Task.completed_at.desc())
-            )
-            task = result.scalar_one_or_none()
+            task = await db.get_latest_task_by_style_async(style_id, status="COMPLETED")
 
             if task and task.result_path:
                 logger.info(f"Found adapter path for style {style_id}: {task.result_path}")
@@ -201,6 +194,31 @@ class InferenceService:
 
             logger.warning(f"No completed task with adapter path found for style {style_id}")
             return None
+        finally:
+            await db.close_async()
+
+    async def get_base_model_from_db(self, style_id: str) -> str:
+        """
+        Get base model name from styles table.
+
+        Args:
+            style_id: Style ID to look up
+
+        Returns:
+            Base model name
+
+        Raises:
+            RuntimeError: If style not found or base_model not set
+        """
+        db = DatabaseOperations(async_mode=True)
+        try:
+            style = await db.get_style_async(style_id)
+            if style and style.base_model:
+                logger.info(f"Found base model for style {style_id}: {style.base_model}")
+                return style.base_model
+            raise RuntimeError(f"Base model not found for style {style_id}")
+        finally:
+            await db.close_async()
 
     async def generate_style_transfer(
         self,
@@ -265,8 +283,11 @@ class InferenceService:
             # Get adapter path from database
             adapter_path = await self.get_adapter_path_from_db(style_id)
 
+            # Get base model from database
+            base_model_name = await self.get_base_model_from_db(style_id)
+
             # Load or get cached model for this style
-            model, tokenizer = self.get_style_model(style_id, adapter_path)
+            model, tokenizer = self.get_style_model(style_id, adapter_path, base_model_name)
 
             # Build prompt
             # prompt = self._build_prompt(original_text, requirement, target_style)

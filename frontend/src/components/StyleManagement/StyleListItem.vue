@@ -5,7 +5,7 @@
     :style="{ animationDelay: `${animationDelay}s` }"
   >
     <div class="list-info" @click="$emit('click', style)">
-      <div class="list-icon" :class="style.status">
+      <div class="list-icon" :class="taskStatusClass">
         <el-icon><Collection /></el-icon>
       </div>
       <div class="list-text">
@@ -14,7 +14,7 @@
       </div>
     </div>
 
-    <div class="list-status" :class="style.status">
+    <div class="list-status" :class="taskStatusClass">
       <span class="status-indicator"></span>
       <span>{{ statusLabel }}</span>
     </div>
@@ -79,34 +79,42 @@ const props = defineProps({
 
 defineEmits(['click', 'edit', 'delete', 'viewProgress'])
 
-const statusClass = computed(() => {
-  const classes = {
-    'pending': 'status-pending',
-    'training': 'status-training',
-    'completed': 'status-completed',
-    'failed': 'status-failed',
-    'available': 'status-available',
-    'evaluating': 'status-evaluating',
-    'preprocessing': 'status-preprocessing'
+// Use task_status (from Task model) instead of style.status
+const taskStatus = computed(() => props.style.task_status || 'PENDING')
+
+// Map task status to CSS class (lowercase for CSS)
+const taskStatusClass = computed(() => {
+  const statusMap = {
+    'PENDING': 'pending',
+    'PREPROCESSING': 'preprocessing',
+    'PROCESSING': 'training',
+    'COMPLETED': 'completed',
+    'FAILED': 'failed',
+    'EVALUATING': 'evaluating'
   }
-  return classes[props.style.status] || 'status-pending'
+  return statusMap[taskStatus.value] || 'pending'
+})
+
+// For row-level status class
+const statusClass = computed(() => {
+  return `status-${taskStatusClass.value}`
 })
 
 const statusLabel = computed(() => {
   const labels = {
-    'pending': '待训练',
-    'training': '训练中',
-    'completed': '已完成',
-    'failed': '失败',
-    'available': '可用',
-    'evaluating': '评估中',
-    'preprocessing': '处理训练数据'
+    'PENDING': '等待中',
+    'PREPROCESSING': '数据处理中',
+    'PROCESSING': '训练中',
+    'COMPLETED': '已完成',
+    'FAILED': '失败',
+    'EVALUATING': '评估中'
   }
-  return labels[props.style.status] || props.style.status
+  console.log(taskStatus.value)
+  return labels[taskStatus.value] || taskStatus.value
 })
 
 const isProcessing = computed(() =>
-  props.style.status === 'training' || props.style.status === 'evaluating' || props.style.status === 'preprocessing'
+  taskStatus.value === 'PROCESSING' || taskStatus.value === 'EVALUATING' || taskStatus.value === 'PREPROCESSING'
 )
 
 const formattedTime = computed(() => {
@@ -162,7 +170,7 @@ const formattedTime = computed(() => {
   flex-shrink: 0;
 }
 
-.list-icon.available {
+.list-icon.completed {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
 }
 
@@ -178,8 +186,8 @@ const formattedTime = computed(() => {
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
 }
 
-.list-icon.preprocessing {
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+.list-icon.failed {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 }
 
 .list-text {
@@ -211,7 +219,7 @@ const formattedTime = computed(() => {
   font-weight: 500;
 }
 
-.list-status.available {
+.list-status.completed {
   color: #059669;
 }
 
@@ -232,13 +240,13 @@ const formattedTime = computed(() => {
   box-shadow: 0 0 6px #8b5cf6;
 }
 
-.list-status.preprocessing {
-  color: #0891b2;
+.list-status.failed {
+  color: #dc2626;
 }
 
-.list-status.preprocessing .status-indicator {
-  background: #06b6d4;
-  box-shadow: 0 0 6px #06b6d4;
+.list-status.failed .status-indicator {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
 }
 
 .list-status .status-indicator {
@@ -247,7 +255,7 @@ const formattedTime = computed(() => {
   border-radius: 50%;
 }
 
-.list-status.available .status-indicator {
+.list-status.completed .status-indicator {
   background: #10b981;
   box-shadow: 0 0 6px #10b981;
 }

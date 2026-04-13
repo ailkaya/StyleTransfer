@@ -32,32 +32,32 @@
           全部
         </button>
         <button
-          :class="['status-btn available', { active: statusFilter === 'available' }]"
-          @click="statusFilter = 'available'"
+          :class="['status-btn available', { active: statusFilter === 'COMPLETED' }]"
+          @click="statusFilter = 'COMPLETED'"
         >
           <span class="status-dot"></span>
           可用
         </button>
         <button
-          :class="['status-btn training', { active: statusFilter === 'training' }]"
-          @click="statusFilter = 'training'"
+          :class="['status-btn training', { active: statusFilter === 'PROCESSING' }]"
+          @click="statusFilter = 'PROCESSING'"
         >
           <span class="status-dot"></span>
           训练中
         </button>
         <button
-          :class="['status-btn evaluating', { active: statusFilter === 'evaluating' }]"
-          @click="statusFilter = 'evaluating'"
+          :class="['status-btn evaluating', { active: statusFilter === 'EVALUATING' }]"
+          @click="statusFilter = 'EVALUATING'"
         >
           <span class="status-dot"></span>
           评估中
         </button>
         <button
-          :class="['status-btn preprocessing', { active: statusFilter === 'preprocessing' }]"
-          @click="statusFilter = 'preprocessing'"
+          :class="['status-btn preprocessing', { active: statusFilter === 'PENDING' }]"
+          @click="statusFilter = 'PENDING'"
         >
           <span class="status-dot"></span>
-          处理训练数据
+          等待中
         </button>
       </div>
 
@@ -255,7 +255,7 @@ const pageSize = ref(12)
 const editDialogVisible = ref(false)
 const saving = ref(false)
 const isSearchFocused = ref(false)
-const statusFilter = ref('') // '', 'available', 'training', 'evaluating', 'preprocessing'
+const statusFilter = ref('') // '', 'COMPLETED', 'PROCESSING', 'EVALUATING', 'PENDING'
 
 const editForm = reactive({
   id: '',
@@ -271,12 +271,12 @@ const selectedStyle = ref(null)
 const filteredTotal = computed(() => {
   let count = styleStore.styles.length
   if (statusFilter.value) {
-    count = styleStore.styles.filter(s => s.status === statusFilter.value).length
+    count = styleStore.styles.filter(s => s.task_status === statusFilter.value).length
   }
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     count = styleStore.styles.filter(s =>
-      (statusFilter.value ? s.status === statusFilter.value : true) &&
+      (statusFilter.value ? s.task_status === statusFilter.value : true) &&
       (s.name.toLowerCase().includes(query) ||
        (s.description && s.description.toLowerCase().includes(query)))
     ).length
@@ -287,9 +287,9 @@ const filteredTotal = computed(() => {
 const filteredStyles = computed(() => {
   let styles = styleStore.styles
 
-  // Status filter
+  // Status filter (using task_status instead of style.status)
   if (statusFilter.value) {
-    styles = styles.filter(s => s.status === statusFilter.value)
+    styles = styles.filter(s => s.task_status === statusFilter.value)
   }
 
   if (searchQuery.value) {

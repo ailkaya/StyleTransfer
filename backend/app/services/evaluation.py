@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Task, Style, AsyncSessionLocal
+from ..db_operations import DatabaseOperations
 from ..utils import get_logger
 
 logger = get_logger(__name__)
@@ -177,16 +178,10 @@ def _estimate_style_match(task_id: str, target_text: str, target_style: str) -> 
     # If predefined keywords not found, extract from training data
     if not keywords:
         try:
-            # Import here to avoid circular imports
-            from ..celery_app.tasks import get_sync_session
-            from sqlalchemy import select
-            from ..models import Task
-
-            session = get_sync_session()
+            # Use DatabaseOperations for database access
+            db = DatabaseOperations()
             try:
-                stmt = select(Task).where(Task.id == task_id)
-                result = session.execute(stmt)
-                task = result.scalar_one_or_none()
+                task = db.get_task(task_id)
 
                 if task and task.training_data_path:
                     original_file = os.path.join(task.training_data_path, 'original.txt')
@@ -203,7 +198,7 @@ def _estimate_style_match(task_id: str, target_text: str, target_style: str) -> 
                     logger.warning(f"No training_data_path found for task {task_id}")
                     return 70.0
             finally:
-                session.close()
+                db.close()
         except Exception as e:
             logger.error(f"Failed to extract keywords from training data: {e}")
             return 70.0
@@ -288,16 +283,16 @@ def calculate_metrics(
 
 async def get_style_by_task_id(task_id: str) -> Optional[Style]:
     """Get style information by task ID."""
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Task, Style).join(Style).where(Task.id == task_id)
-        )
-        row = result.first()
-
-        if not row:
+    db = DatabaseOperations(async_mode=True)
+    try:
+        task = await db.get_task_async(task_id)
+        if not task:
             return None
-
-        return row[1]
+        # Get style using the style_id from task
+        style = await db.get_style_async(task.style_id)
+        return style
+    finally:
+        await db.close_async()
 
 
 async def generate_test_samples(
