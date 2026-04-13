@@ -133,7 +133,7 @@ async def create_task(
 
     # Start Celery task
     # Start Celery task - skip blocking checks on Windows
-    logger.info(f"Starting Celery task for task_id={new_task.id}")
+    logger.info(f"Starting Celery task for task_id={new_task.id}, parent_style_id={task_data.parent_style_id}")
     try:
         # Note: delay() may block on Windows if Redis is unreachable
         # We accept this risk as the task record is already created in DB
@@ -142,6 +142,7 @@ async def create_task(
             style_id=task_data.style_id,
             training_text=task_data.training_text,
             config=config_dict,
+            parent_style_id=task_data.parent_style_id,
         )
         logger.info(f"Celery task dispatched: job_id={celery_job.id}")
     except Exception as e:

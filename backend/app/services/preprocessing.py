@@ -6,6 +6,9 @@ import random
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Tuple, Optional
 
+from ..utils import get_logger
+
+logger = get_logger(__name__)
 
 class PreprocessingService:
     """Service for preprocessing training text data."""
@@ -620,6 +623,143 @@ class DataPreprocessor:
             "chunks": [asdict(c) for c in chunks],
             "samples": samples
         }
+
+    async def adjust_samples_by_comment(
+        self,
+        samples: List[Dict],
+        comment: str,
+        inference_service=None
+    ) -> List[Dict]:
+        """
+        根据用户评论调整训练样本。
+
+        Args:
+            samples: 生成的训练样本列表
+            comment: 用户评价/反馈
+            inference_service: 推理服务实例（用于调用LLM）
+
+        Returns:
+            调整后的样本列表
+        """
+        if not comment or not inference_service:
+            return samples
+
+        # 1. 验证 comment 语义有效性
+        is_valid = await self._validate_comment_semantic(comment, inference_service)
+        if not is_valid:
+            logger.info(f"Comment '{comment[:50]}...' is not semantically valid, skipping adjustment")
+            return samples
+
+        logger.info(f"Adjusting {len(samples)} samples based on comment: {comment[:50]}...")
+
+        # 2. 对每个样本进行调整
+        adjusted_samples = []
+        for sample in samples:
+            adjusted = await self._apply_comment_adjustment(sample, comment, inference_service)
+            if adjusted:
+                adjusted_samples.append(adjusted)
+            else:
+                adjusted_samples.append(sample)
+
+        return adjusted_samples
+
+    async def _validate_comment_semantic(
+        self,
+        comment: str,
+        inference_service
+    ) -> bool:
+        """使用 LLM 验证评论是否有有效语义。"""
+        prompt = f"""请判断以下用户反馈是否包含可用于改进训练数据的具体、有效语义。
+
+用户反馈："{comment}"
+
+有效反馈示例：
+- "风格可以更幽默一些"
+- "减少重复用词"
+- "增加文学性描写"
+- "语气应该更正式"
+
+无效反馈示例：
+- "很好"
+- "不错"
+- "无"
+- "还可以"
+
+请只回答 "VALID" 或 "INVALID"。"""
+
+        try:
+            response = await inference_service.call_llm_for_validation(prompt)
+            is_valid = "VALID" in response.upper()
+            logger.info(f"Comment validation result: {is_valid} (response: {response})")
+            return is_valid
+        except Exception as e:
+            logger.error(f"Failed to validate comment: {e}")
+            return False
+
+    async def _apply_comment_adjustment(
+        self,
+        sample: Dict,
+        comment: str,
+        inference_service
+    ) -> Optional[Dict]:
+        """使用 LLM 根据评论调整单个样本。"""
+        # 从对话格式中提取信息
+        conversations = sample.get('conversations', [])
+        system = sample.get('system', '')
+        instruction = ''
+        input_text = ''
+        output = ''
+
+        if conversations and len(conversations) >= 2:
+            human_msg = conversations[0].get('value', '')
+            parts = human_msg.split('\n', 1)
+            instruction = parts[0]
+            input_text = parts[1] if len(parts) > 1 else ''
+            output = conversations[1].get('value', '')
+
+        prompt = f"""请根据用户的改进要求，调整以下训练样本。
+
+用户改进要求："{comment}"
+
+原始样本：
+系统提示：{system}
+用户指令：{instruction}
+输入：{input_text}
+期望输出：{output}
+
+请输出调整后的 JSON 格式：
+{{
+  "system": "调整后的系统提示（如有必要）",
+  "instruction": "调整后的用户指令",
+  "input": "调整后的输入",
+  "output": "调整后的期望输出"
+}}
+
+只输出 JSON，不要其他解释。"""
+
+        try:
+            response = await inference_service.call_llm_for_adjustment(prompt)
+            # 解析 JSON 响应
+            import json
+            adjusted_raw = json.loads(response)
+
+            # 转换回对话格式
+            adjusted = {
+                'id': sample.get('id', ''),
+                'system': adjusted_raw.get('system', system),
+                'conversations': [
+                    {'from': 'human', 'value': adjusted_raw.get('instruction', instruction) +
+                     ('\n' + adjusted_raw.get('input', input_text) if adjusted_raw.get('input', input_text) else '')},
+                    {'from': 'gpt', 'value': adjusted_raw.get('output', output)}
+                ],
+                'task_type': sample.get('task_type', 'general'),
+                'metadata': sample.get('metadata', {})
+            }
+            adjusted['metadata']['adjusted_by_comment'] = True
+            return adjusted
+        except Exception as e:
+            logger.error(f"Failed to adjust sample: {e}")
+            return None
 
     def save_to_jsonl(self, data: List[Dict], filepath: str):
         """保存数据为JSONL格式"""

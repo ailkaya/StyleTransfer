@@ -93,12 +93,81 @@
             <div class="card-header">
               <el-icon :size="24" color="#667eea"><SetUp /></el-icon>
               <div class="header-text">
-                <h3>选择底座模型</h3>
-                <p>选择作为训练基础的预训练模型</p>
+                <h3>模型选择</h3>
+                <p>选择底座模型或基于已有风格继续训练</p>
               </div>
             </div>
 
-            <div class="model-options">
+            <!-- Continue Training Option -->
+            <div class="continue-training-section">
+              <div class="section-label">
+                <span>基于已有风格继续训练</span>
+                <el-tooltip content="选择一个已训练的风格作为基础，在其上继续微调" placement="top">
+                  <el-icon><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </div>
+              <el-switch
+                v-model="form.continue_training"
+                active-text="开启"
+                inactive-text="关闭"
+                size="large"
+              />
+            </div>
+
+            <!-- Parent Style Selection -->
+            <div v-if="form.continue_training" class="parent-style-section">
+              <div class="section-label">选择已有风格</div>
+              <el-select
+                v-model="form.parent_style_id"
+                placeholder="选择要基于的风格"
+                size="large"
+                class="parent-style-select"
+              >
+                <el-option
+                  v-for="style in availableStyles"
+                  :key="style.id"
+                  :label="style.name"
+                  :value="style.id"
+                >
+                  <div class="style-option">
+                    <span class="style-name">{{ style.name }}</span>
+                    <span class="style-tag">{{ style.target_style }}</span>
+                    <el-tag v-if="style.status === 'available'" type="success" size="small">可用</el-tag>
+                  </div>
+                </el-option>
+              </el-select>
+
+              <!-- Selected Style Info -->
+              <div v-if="selectedParentStyle" class="parent-style-info">
+                <div class="info-item">
+                  <span class="info-label">风格名称：</span>
+                  <span class="info-value">{{ selectedParentStyle.name }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">目标风格：</span>
+                  <span class="info-value">{{ selectedParentStyle.target_style }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">风格描述：</span>
+                  <span class="info-value">{{ selectedParentStyle.description || '暂无描述' }}</span>
+                </div>
+                <div v-if="selectedParentStyle.overall_score > 0" class="info-item">
+                  <span class="info-label">评估分数：</span>
+                  <span class="info-value score">{{ selectedParentStyle.overall_score.toFixed(1) }}分</span>
+                </div>
+              </div>
+
+              <div v-if="availableStyles.length === 0" class="no-styles-hint">
+                <el-icon><InfoFilled /></el-icon>
+                <span>暂无可用的已有风格，请先训练一个风格</span>
+              </div>
+            </div>
+
+            <div v-if="!form.continue_training" class="divider">
+              <span>或选择底座模型</span>
+            </div>
+
+            <div v-if="!form.continue_training" class="model-options">
               <div
                 v-for="model in models"
                 :key="model.id"
@@ -349,7 +418,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStyleStore } from '@/stores/style'
 import { useTaskStore } from '@/stores/task'
@@ -368,11 +437,17 @@ import {
   View,
   DataLine,
   Timer,
-  QuestionFilled
+  QuestionFilled,
+  ChatLineRound
 } from '@element-plus/icons-vue'
 const router = useRouter()
 const styleStore = useStyleStore()
 const taskStore = useTaskStore()
+
+// Load available styles on mount
+onMounted(async () => {
+  await styleStore.fetchStyles()
+})
 
 const currentStep = ref(0)
 const formRef = ref(null)
@@ -412,6 +487,8 @@ const form = reactive({
   target_style: '',
   base_model: 'llama-2-3b',
   training_text: '',
+  continue_training: false,
+  parent_style_id: null,
   config: {
     learning_rate: 0.0002,
     num_epochs: 3,
@@ -445,6 +522,15 @@ const canSubmit = computed(() => {
          form.target_style &&
          form.training_text.length >= 100 &&
          !loading.value
+})
+
+const availableStyles = computed(() => {
+  return styleStore.availableStyles
+})
+
+const selectedParentStyle = computed(() => {
+  if (!form.parent_style_id) return null
+  return availableStyles.value.find(s => s.id === form.parent_style_id)
 })
 
 function getModelName(id) {
@@ -510,7 +596,8 @@ async function startTraining() {
       style_id: style.id,
       base_model: form.base_model,
       training_text: form.training_text,
-      config: form.config
+      config: form.config,
+      parent_style_id: form.continue_training ? form.parent_style_id : null
     }
     await taskStore.createTask(taskData)
 
@@ -893,6 +980,105 @@ async function startTraining() {
   border-radius: var(--radius-md);
   color: var(--info-color);
   font-size: 13px;
+}
+
+/* Continue Training Section */
+.continue-training-section {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: 24px;
+}
+
+.continue-training-section .section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.continue-training-section .section-label .el-icon {
+  color: var(--text-muted);
+  cursor: help;
+}
+
+/* Parent Style Section */
+.parent-style-section {
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  margin-bottom: 24px;
+}
+
+.parent-style-section .section-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.parent-style-select {
+  width: 100%;
+}
+
+.style-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.style-option .style-name {
+  font-weight: 500;
+}
+
+.style-option .style-tag {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.parent-style-info {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.parent-style-info .info-item {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.parent-style-info .info-item:last-child {
+  margin-bottom: 0;
+}
+
+.parent-style-info .info-label {
+  color: var(--text-secondary);
+  min-width: 80px;
+}
+
+.parent-style-info .info-value {
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.parent-style-info .info-value.score {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.no-styles-hint {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--warning-color);
+  font-size: 14px;
 }
 
 /* Config Grid */

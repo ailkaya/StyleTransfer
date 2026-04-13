@@ -425,6 +425,48 @@ class InferenceService:
         except Exception:
             return False
 
+    async def call_llm_for_validation(self, prompt: str) -> str:
+        """调用 LLM 进行验证类任务（如判断 comment 语义有效性）。"""
+        self._ensure_configured()
+        if not self.client:
+            raise ValueError("LLM client not configured")
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是一个文本分析助手，只回答 VALID 或 INVALID。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=10,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"LLM validation call failed: {e}")
+            raise
+
+    async def call_llm_for_adjustment(self, prompt: str) -> str:
+        """调用 LLM 进行调整类任务（如根据 comment 调整训练样本）。"""
+        self._ensure_configured()
+        if not self.client:
+            raise ValueError("LLM client not configured")
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "你是一个训练数据优化助手。根据用户要求调整数据，只输出JSON格式。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"LLM adjustment call failed: {e}")
+            raise
+
 
 # Global inference service instance (lazy initialization)
 _inference_service = None

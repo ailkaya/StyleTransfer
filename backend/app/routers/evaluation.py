@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel, Field
@@ -240,3 +240,36 @@ async def get_comment(
         },
         timestamp=datetime.utcnow(),
     )
+
+
+# @router.get("/latest", response_model=EvaluationResponse)
+# async def get_latest_evaluation(
+#     style_id: str = Query(..., description="风格ID"),
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     """Get the latest evaluation for a style."""
+#     logger.info(f"Fetching latest evaluation for style: {style_id}")
+
+#     # Query the latest evaluation for this style
+#     result = await db.execute(
+#         select(Evaluation)
+#         .where(Evaluation.style_id == style_id)
+#         .order_by(Evaluation.created_at.desc())
+#     )
+#     evaluation = result.scalar_one_or_none()
+
+#     if not evaluation:
+#         logger.warning(f"No evaluation found for style: {style_id}")
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"No evaluation found for style '{style_id}'"
+#         )
+
+#     logger.info(f"Found evaluation for style {style_id}: overall_score={evaluation.overall_score}")
+
+#     return EvaluationResponse(
+#         code=200,
+#         message="success",
+#         data=evaluation.to_dict(),
+#         timestamp=datetime.utcnow(),
+#     )

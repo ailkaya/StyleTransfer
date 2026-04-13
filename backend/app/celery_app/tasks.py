@@ -271,7 +271,14 @@ def run_evaluation_and_save(task_id: str, style_id: str, adapter_path: str):
 
 
 @celery_app.task(bind=True, max_retries=1, default_retry_delay=5)
-def train_style_model(self, task_id: str, style_id: str, training_text: str, config: dict):
+def train_style_model(
+    self,
+    task_id: str,
+    style_id: str,
+    training_text: str,
+    config: dict,
+    parent_style_id: str = None
+):
     """
     Celery task for training style model.
     """
@@ -330,6 +337,36 @@ def train_style_model(self, task_id: str, style_id: str, training_text: str, con
         logger.info(f"  - Train samples: {len(preprocessed['train_data'])}")
         logger.info(f"  - Val samples: {len(preprocessed['val_data'])}")
         logger.info(f"  - Avg length: {preprocessed['metadata']['avg_length']:.0f} chars")
+
+        # Step 2.5: Adjust samples by parent style comment if applicable
+        if parent_style_id:
+            logger.info(f"Checking for parent style comment: {parent_style_id}")
+            session = get_sync_session()
+            try:
+                from ..models import Evaluation
+                result = session.execute(
+                    select(Evaluation)
+                    .where(Evaluation.style_id == parent_style_id)
+                    .order_by(Evaluation.created_at.desc())
+                )
+                evaluation = result.scalar_one_or_none()
+
+                if evaluation and evaluation.comment:
+                    logger.info(f"Found comment for parent style {parent_style_id}: {evaluation.comment[:50]}...")
+                    try:
+                        inference_service = get_inference_service()
+                        adjusted_train_data = asyncio.run(preprocessor.adjust_samples_by_comment(
+                            preprocessed['train_data'], evaluation.comment, inference_service
+                        ))
+                        adjusted_count = sum(1 for s in adjusted_train_data if s.get('metadata', {}).get('adjusted_by_comment'))
+                        logger.info(f"Adjusted {adjusted_count} samples based on comment")
+                        preprocessed['train_data'] = adjusted_train_data
+                    except Exception as e:
+                        logger.error(f"Failed to adjust samples by comment: {e}")
+                else:
+                    logger.info(f"No comment found for parent style {parent_style_id}")
+            finally:
+                session.close()
 
         # Save processed data for training (optional, for debugging)
         output_dir = f"./training_data/{task_id}"
