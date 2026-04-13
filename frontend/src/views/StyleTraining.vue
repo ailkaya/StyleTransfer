@@ -175,7 +175,7 @@
                 @click="form.base_model = model.id"
               >
                 <div class="model-badge" :class="model.type">
-                  {{ model.type === 'llama' ? 'LLaMA' : 'ChatGLM' }}
+                  {{ model.type === 'llama' ? 'LLaMA' : 'Qwen' }}
                 </div>
                 <div class="model-icon">
                   <el-icon :size="32"><component :is="model.icon" /></el-icon>
@@ -471,13 +471,13 @@ const models = [
     speed: '速度较快'
   },
   {
-    id: 'chatglm3-6b',
-    name: 'ChatGLM3-6B',
-    type: 'chatglm',
+    id: 'qwen3-1.7b',
+    name: 'Qwen3-1.7B',
+    type: 'qwen',
     icon: 'ChatLineRound',
-    description: '清华ChatGLM系列，中文优化',
-    params: '6B参数',
-    speed: '效果更好'
+    description: '阿里Qwen3系列，双模式推理，119种语言支持',
+    params: '1.7B参数',
+    speed: '轻量高效'
   }
 ]
 
@@ -512,9 +512,51 @@ const estimatedTokens = computed(() => {
 })
 
 const estimatedTime = computed(() => {
-  const baseTime = 5 // minutes
-  const epochTime = form.config.num_epochs * 3
-  return `约 ${baseTime + epochTime} 分钟`
+  // 计算文本 tokens 数量 (粗略估计: 1 token ≈ 2 字符)
+  const tokenCount = form.training_text.length / 2
+
+  // 基础参数
+  const baseTime = 3 // 基础准备时间 (分钟)
+  const preprocessingTime = Math.min(tokenCount / 50000, 5) // 预处理时间，最多5分钟
+
+  // 模型速度因子 (token/秒，粗略估计)
+  const modelSpeedMap = {
+    'llama-2-3b': 800,
+    'qwen3-1.7b': 1000
+  }
+  const modelSpeed = modelSpeedMap[form.base_model] || 800
+
+  // 计算每轮时间
+  // 每轮需要处理所有数据，考虑批次大小
+  const batchSize = form.config.batch_size
+  const samplesPerEpoch = Math.max(tokenCount / 512, 10) // 假设平均每个样本512 tokens
+  const batchesPerEpoch = Math.max(samplesPerEpoch / batchSize, 1)
+
+  // 每批次时间 = 前向传播 + 反向传播 + 优化器步骤
+  // 粗略估计: 每批次约 0.5-2 秒，取决于模型和批次大小
+  const timePerBatch = 0.8 + (batchSize * 0.1)
+  const timePerEpoch = (batchesPerEpoch * timePerBatch) / 60 // 转换为分钟
+
+  // 评估时间
+  const evalTime = 2 // 分钟
+
+  // 继续训练可节省约20%时间（更好的初始化）
+  const continueTrainingFactor = form.continue_training ? 0.8 : 1.0
+
+  // 总时间计算
+  const numEpochs = form.config.num_epochs
+  const totalTime = (baseTime + preprocessingTime + (timePerEpoch * numEpochs) + evalTime) * continueTrainingFactor
+
+  // 格式化输出
+  if (totalTime < 1) {
+    return '约 1 分钟'
+  } else if (totalTime < 60) {
+    return `约 ${Math.round(totalTime)} 分钟`
+  } else {
+    const hours = Math.floor(totalTime / 60)
+    const mins = Math.round(totalTime % 60)
+    return `约 ${hours} 小时 ${mins} 分钟`
+  }
 })
 
 const canSubmit = computed(() => {

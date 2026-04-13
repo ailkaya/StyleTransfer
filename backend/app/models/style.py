@@ -47,7 +47,7 @@ class Style(Base):
         String(50),
         nullable=False,
         default="llama-2-3b",
-        comment="底座模型标识，如llama-2-3b, chatglm3-6b"
+        comment="底座模型标识，如llama-2-3b, Qwen3-1.7B"
     )
     adapter_path: Mapped[str] = mapped_column(
         String(255),
