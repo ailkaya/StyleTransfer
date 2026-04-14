@@ -45,6 +45,7 @@ class EvaluationData(BaseModel):
     vocab_diversity: float
     length_ratio: float
     bleu_score: float
+    bert_score: float
     avg_response_time: float
 
     # Sample pairs for comparison
@@ -127,6 +128,7 @@ async def get_evaluation(
                 "vocab_diversity": 0,
                 "length_ratio": 0,
                 "bleu_score": 0,
+                "bert_score": 0,
                 "avg_response_time": 0,
                 "comment": None,
                 "samples": []

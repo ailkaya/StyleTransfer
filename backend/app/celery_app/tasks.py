@@ -216,6 +216,7 @@ def train_style_model(
                 "vocab_diversity": evaluation_data.get("vocab_diversity", 0),
                 "length_ratio": evaluation_data.get("length_ratio", 0),
                 "bleu_score": evaluation_data.get("bleu_score", 0),
+                "bert_score": evaluation_data.get("bert_score", 0),
                 "avg_response_time": evaluation_data.get("avg_response_time", 0),
                 "samples": evaluation_data.get("samples", [])
             })

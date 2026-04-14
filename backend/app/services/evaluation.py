@@ -35,6 +35,7 @@ class EvaluationMetrics:
     overall_score: float
     char_retention: float
     bleu_score: float
+    bert_score: float
     style_score: float
     fluency_score: float
     vocab_diversity: float
@@ -107,6 +108,31 @@ def _calculate_length_ratio(source_texts: List[str], target_texts: List[str]) ->
 
 #     semantic_score = word_sim * 0.6 + char_sim * 0.4
 #     return min(semantic_score, 100.0)
+
+
+def _calculate_bertscore(source_texts: List[str], target_texts: List[str]) -> float:
+    """Calculate BERTScore F1 between source and target texts using Chinese BERT.
+
+    Candidates: target_texts, References: source_texts.
+    Returns F1 mean scaled to 0-100.
+    """
+    try:
+        from bert_score import score as bert_score_func
+
+        if not source_texts or not target_texts:
+            return 0.0
+
+        P, R, F1 = bert_score_func(
+            target_texts,
+            source_texts,
+            lang="zh",
+            device="cpu",
+            verbose=False
+        )
+        return F1.mean().item() * 100
+    except Exception as e:
+        logger.error(f"BERTScore calculation failed: {e}")
+        return 0.0
 
 
 def _calculate_bleu(source_texts: List[str], target_texts: List[str]) -> float:
@@ -258,6 +284,7 @@ def calculate_metrics(
     sample_count = len(source_texts)
 
     bleu_score = _calculate_bleu(source_texts, target_texts)
+    bert_score = _calculate_bertscore(source_texts, target_texts)
 
     semantic_scores = []
     char_retentions = []
@@ -277,16 +304,17 @@ def calculate_metrics(
     vocab_diversity = _calculate_vocab_diversity(target_texts)
     avg_response_time = sum(response_times) / len(response_times) if response_times else 0.0
 
-    avg_semantic = sum(semantic_scores) / len(semantic_scores)
+    avg_semantic = sum(semantic_scores) / len(semantic_scores) if semantic_scores else 0.0
     avg_style = sum(style_scores) / len(style_scores)
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
     overall = (
-        bleu_score * 0.4 +
-        avg_style * 0.25 +
+        bleu_score * 0.30 +
+        bert_score * 0.20 +
+        avg_style * 0.20 +
         avg_fluency * 0.15 +
-        min(vocab_diversity, 100) * 0.1 +
-        (100 - abs(length_ratio - 100)) * 0.1
+        min(vocab_diversity, 100) * 0.075 +
+        (100 - abs(length_ratio - 100)) * 0.075
     )
 
     return EvaluationMetrics(
@@ -294,6 +322,7 @@ def calculate_metrics(
         # semantic_score=round(avg_semantic, 1),
         char_retention=round(sum(char_retentions) / len(char_retentions), 1),
         bleu_score=round(bleu_score, 1),
+        bert_score=round(bert_score, 1),
         style_score=round(avg_style, 1),
         fluency_score=round(avg_fluency, 1),
         vocab_diversity=round(vocab_diversity, 1),
@@ -490,6 +519,7 @@ class EvaluationService:
             # "semantic_score": metrics.semantic_score,
             "char_retention": metrics.char_retention,
             "bleu_score": metrics.bleu_score,
+            "bert_score": metrics.bert_score,
             "style_score": metrics.style_score,
             "fluency_score": metrics.fluency_score,
             "vocab_diversity": metrics.vocab_diversity,
@@ -514,11 +544,12 @@ class EvaluationService:
             "task_name": "示例风格任务",
             "target_style": "文艺",
             "generated_at": "2024-01-15 14:30",
-            "overall_score": 72.3,
+            "overall_score": 74.5,
             "sample_count": 5,
             # "semantic_score": 82.5,
             "char_retention": 68.3,
             "bleu_score": 48.5,
+            "bert_score": 76.4,
             "style_score": 91.2,
             "fluency_score": 88.7,
             "vocab_diversity": 75.4,

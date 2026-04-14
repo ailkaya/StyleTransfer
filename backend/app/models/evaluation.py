@@ -112,6 +112,12 @@ class Evaluation(Base):
         default=0.0,
         comment="BLEU得分"
     )
+    bert_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        comment="BERTScore得分"
+    )
     avg_response_time: Mapped[float] = mapped_column(
         Float,
         nullable=False,
@@ -172,6 +178,7 @@ class Evaluation(Base):
             "vocab_diversity": self.vocab_diversity,
             "length_ratio": self.length_ratio,
             "bleu_score": self.bleu_score,
+            "bert_score": self.bert_score,
             "avg_response_time": self.avg_response_time,
             "samples": json.loads(self.samples) if self.samples else [],
             "comment": self.comment

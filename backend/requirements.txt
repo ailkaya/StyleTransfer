@@ -29,6 +29,7 @@ aiofiles==23.2.1
 python-dotenv==1.0.0
 jieba==0.42.1
 sacrebleu>=2.3.0
+bert-score>=0.3.13
 
 # Testing
 pytest==7.4.3

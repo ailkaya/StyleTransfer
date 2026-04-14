@@ -36,6 +36,9 @@
             <span class="score-tag" :class="getScoreClass(data.bleu_score)">
               BLEU {{ data.bleu_score }}
             </span>
+            <span class="score-tag" :class="getScoreClass(data.bert_score)">
+              BERTScore {{ data.bert_score }}
+            </span>
             <span class="score-tag" :class="getScoreClass(data.style_score)">
               风格符合 {{ data.style_score }}%
             </span>
@@ -66,6 +69,20 @@
                  :style="{ width: Math.min(data.bleu_score, 100) + '%' }"></div>
           </div>
           <p class="metric-desc">基于样本的 n-gram 重叠度 (Corpus-BLEU)</p>
+        </div>
+
+        <div class="metric-item">
+          <div class="metric-header">
+            <span class="metric-name">BERTScore</span>
+            <span class="metric-value" :class="getScoreClass(data.bert_score)">
+              {{ data.bert_score }}
+            </span>
+          </div>
+          <div class="metric-bar">
+            <div class="metric-fill" :class="getScoreClass(data.bert_score)"
+                 :style="{ width: Math.min(data.bert_score, 100) + '%' }"></div>
+          </div>
+          <p class="metric-desc">基于中文 BERT 嵌入的语义相似度 (F1)</p>
         </div>
 
         <div class="metric-item">
@@ -269,6 +286,7 @@ const props = defineProps({
       // semantic_score: 0,
       char_retention: 0,
       bleu_score: 0,
+      bert_score: 0,
       style_score: 0,
       fluency_score: 0,
       vocab_diversity: 0,
