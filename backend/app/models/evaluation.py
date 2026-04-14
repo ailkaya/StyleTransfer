@@ -70,12 +70,12 @@ class Evaluation(Base):
     )
 
     # Detailed metrics
-    semantic_score: Mapped[float] = mapped_column(
-        Float,
-        nullable=False,
-        default=0.0,
-        comment="语义保留率"
-    )
+    # semantic_score: Mapped[float] = mapped_column(
+    #     Float,
+    #     nullable=False,
+    #     default=0.0,
+    #     comment="语义保留率"
+    # )
     char_retention: Mapped[float] = mapped_column(
         Float,
         nullable=False,
@@ -105,6 +105,12 @@ class Evaluation(Base):
         nullable=False,
         default=0.0,
         comment="长度变化率"
+    )
+    bleu_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+        comment="BLEU得分"
     )
     avg_response_time: Mapped[float] = mapped_column(
         Float,
@@ -159,12 +165,13 @@ class Evaluation(Base):
             "generated_at": self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else "-",
             "overall_score": self.overall_score,
             "sample_count": self.sample_count,
-            "semantic_score": self.semantic_score,
+            # "semantic_score": self.semantic_score,
             "char_retention": self.char_retention,
             "style_score": self.style_score,
             "fluency_score": self.fluency_score,
             "vocab_diversity": self.vocab_diversity,
             "length_ratio": self.length_ratio,
+            "bleu_score": self.bleu_score,
             "avg_response_time": self.avg_response_time,
             "samples": json.loads(self.samples) if self.samples else [],
             "comment": self.comment

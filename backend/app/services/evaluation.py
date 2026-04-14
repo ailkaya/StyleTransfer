@@ -4,11 +4,14 @@ This module implements automatic evaluation metrics.
 """
 
 import os
+import random
 import time
 import re
 from datetime import datetime
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
+
+import sacrebleu
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,8 +33,8 @@ EVALUATION_MOCK_MODE = settings.EVALUATION_MOCK_MODE
 class EvaluationMetrics:
     """Evaluation metrics data class."""
     overall_score: float
-    semantic_score: float
     char_retention: float
+    bleu_score: float
     style_score: float
     fluency_score: float
     vocab_diversity: float
@@ -86,24 +89,42 @@ def _calculate_length_ratio(source_texts: List[str], target_texts: List[str]) ->
     return ratio, avg_source, avg_target
 
 
-def _calculate_semantic_similarity(source: str, target: str) -> float:
-    """Calculate semantic similarity using word and character overlap."""
-    source_words = set(re.findall(r'\b\w+\b', source.lower()))
-    target_words = set(re.findall(r'\b\w+\b', target.lower()))
+# def _calculate_semantic_similarity(source: str, target: str) -> float:
+#     """Calculate semantic similarity using word and character overlap."""
+#     source_words = set(re.findall(r'\b\w+\b', source.lower()))
+#     target_words = set(re.findall(r'\b\w+\b', target.lower()))
 
-    if not source_words:
+#     if not source_words:
+#         return 0.0
+
+#     intersection = len(source_words & target_words)
+#     union = len(source_words | target_words)
+#     word_sim = (intersection / union * 100) if union > 0 else 0.0
+
+#     source_chars = set(source.replace(' ', ''))
+#     target_chars = set(target.replace(' ', ''))
+#     char_sim = (len(source_chars & target_chars) / len(source_chars) * 100) if source_chars else 0.0
+
+#     semantic_score = word_sim * 0.6 + char_sim * 0.4
+#     return min(semantic_score, 100.0)
+
+
+def _calculate_bleu(source_texts: List[str], target_texts: List[str]) -> float:
+    """Calculate corpus-level BLEU score between source and target texts.
+
+    Uses jieba for Chinese word segmentation and sacrebleu for corpus-level BLEU.
+    Reference: source_texts (training originals), Candidate: target_texts.
+    """
+    import jieba
+
+    if not source_texts or not target_texts:
         return 0.0
 
-    intersection = len(source_words & target_words)
-    union = len(source_words | target_words)
-    word_sim = (intersection / union * 100) if union > 0 else 0.0
+    refs = [" ".join(jieba.cut(s)) for s in source_texts]
+    hyps = [" ".join(jieba.cut(t)) for t in target_texts]
 
-    source_chars = set(source.replace(' ', ''))
-    target_chars = set(target.replace(' ', ''))
-    char_sim = (len(source_chars & target_chars) / len(source_chars) * 100) if source_chars else 0.0
-
-    semantic_score = word_sim * 0.6 + char_sim * 0.4
-    return min(semantic_score, 100.0)
+    bleu = sacrebleu.corpus_bleu(hyps, [refs])
+    return bleu.score
 
 
 def _estimate_fluency(text: str) -> float:
@@ -236,13 +257,15 @@ def calculate_metrics(
 
     sample_count = len(source_texts)
 
+    bleu_score = _calculate_bleu(source_texts, target_texts)
+
     semantic_scores = []
     char_retentions = []
     style_scores = []
     fluency_scores = []
 
     for src, tgt in zip(source_texts, target_texts):
-        semantic_scores.append(_calculate_semantic_similarity(src, tgt))
+        # semantic_scores.append(_calculate_semantic_similarity(src, tgt))
         char_retentions.append(_calculate_char_retention(src, tgt))
         style_scores.append(_estimate_style_match(task_id, tgt, target_style))
         fluency_scores.append(_estimate_fluency(tgt))
@@ -259,17 +282,18 @@ def calculate_metrics(
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
     overall = (
-        avg_semantic * 0.3 +
-        avg_style * 0.3 +
-        avg_fluency * 0.2 +
+        bleu_score * 0.4 +
+        avg_style * 0.25 +
+        avg_fluency * 0.15 +
         min(vocab_diversity, 100) * 0.1 +
         (100 - abs(length_ratio - 100)) * 0.1
     )
 
     return EvaluationMetrics(
         overall_score=round(overall, 1),
-        semantic_score=round(avg_semantic, 1),
+        # semantic_score=round(avg_semantic, 1),
         char_retention=round(sum(char_retentions) / len(char_retentions), 1),
+        bleu_score=round(bleu_score, 1),
         style_score=round(avg_style, 1),
         fluency_score=round(avg_fluency, 1),
         vocab_diversity=round(vocab_diversity, 1),
@@ -463,8 +487,9 @@ class EvaluationService:
             "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M'),
             "overall_score": metrics.overall_score,
             "sample_count": metrics.sample_count,
-            "semantic_score": metrics.semantic_score,
+            # "semantic_score": metrics.semantic_score,
             "char_retention": metrics.char_retention,
+            "bleu_score": metrics.bleu_score,
             "style_score": metrics.style_score,
             "fluency_score": metrics.fluency_score,
             "vocab_diversity": metrics.vocab_diversity,
@@ -489,10 +514,11 @@ class EvaluationService:
             "task_name": "示例风格任务",
             "target_style": "文艺",
             "generated_at": "2024-01-15 14:30",
-            "overall_score": 85.6,
+            "overall_score": 72.3,
             "sample_count": 5,
-            "semantic_score": 82.5,
+            # "semantic_score": 82.5,
             "char_retention": 68.3,
+            "bleu_score": 48.5,
             "style_score": 91.2,
             "fluency_score": 88.7,
             "vocab_diversity": 75.4,

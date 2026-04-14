@@ -33,8 +33,8 @@
           <h3>评估概览</h3>
           <p>基于 {{ data.sample_count }} 组样本的自动评估结果</p>
           <div class="score-tags">
-            <span class="score-tag" :class="getScoreClass(data.semantic_score)">
-              语义保留 {{ data.semantic_score }}%
+            <span class="score-tag" :class="getScoreClass(data.bleu_score)">
+              BLEU {{ data.bleu_score }}
             </span>
             <span class="score-tag" :class="getScoreClass(data.style_score)">
               风格符合 {{ data.style_score }}%
@@ -56,16 +56,16 @@
       <div class="metrics-grid">
         <div class="metric-item">
           <div class="metric-header">
-            <span class="metric-name">语义保留率</span>
-            <span class="metric-value" :class="getScoreClass(data.semantic_score)">
-              {{ data.semantic_score }}%
+            <span class="metric-name">BLEU 得分</span>
+            <span class="metric-value" :class="getScoreClass(data.bleu_score)">
+              {{ data.bleu_score }}
             </span>
           </div>
           <div class="metric-bar">
-            <div class="metric-fill" :class="getScoreClass(data.semantic_score)"
-                 :style="{ width: data.semantic_score + '%' }"></div>
+            <div class="metric-fill" :class="getScoreClass(data.bleu_score)"
+                 :style="{ width: Math.min(data.bleu_score, 100) + '%' }"></div>
           </div>
-          <p class="metric-desc">原文与转换后文本的语义相似度</p>
+          <p class="metric-desc">基于样本的 n-gram 重叠度 (Corpus-BLEU)</p>
         </div>
 
         <div class="metric-item">
@@ -142,6 +142,7 @@
       <div class="section-title">
         <el-icon><ChatDotRound /></el-icon>
         <span>用户评价</span>
+        <span style="font-size: 0.75em; color: #888888;">(此评价将用于下一次对该模型进行微调时的数据优化)</span>
       </div>
 
       <!-- View Mode: Show existing comment -->
@@ -265,8 +266,9 @@ const props = defineProps({
       generated_at: '',
       overall_score: 0,
       sample_count: 0,
-      semantic_score: 0,
+      // semantic_score: 0,
       char_retention: 0,
+      bleu_score: 0,
       style_score: 0,
       fluency_score: 0,
       vocab_diversity: 0,

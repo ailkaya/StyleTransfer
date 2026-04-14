@@ -28,6 +28,7 @@ aiofiles==23.2.1
 # Utilities
 python-dotenv==1.0.0
 jieba==0.42.1
+sacrebleu>=2.3.0
 
 # Testing
 pytest==7.4.3

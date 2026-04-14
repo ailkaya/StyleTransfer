@@ -209,12 +209,13 @@ def train_style_model(
                 "target_style": style.target_style if style else "",
                 "overall_score": evaluation_data.get("overall_score", 0),
                 "sample_count": evaluation_data.get("sample_count", 0),
-                "semantic_score": evaluation_data.get("semantic_score", 0),
+                # "semantic_score": evaluation_data.get("semantic_score", 0),
                 "char_retention": evaluation_data.get("char_retention", 0),
                 "style_score": evaluation_data.get("style_score", 0),
                 "fluency_score": evaluation_data.get("fluency_score", 0),
                 "vocab_diversity": evaluation_data.get("vocab_diversity", 0),
                 "length_ratio": evaluation_data.get("length_ratio", 0),
+                "bleu_score": evaluation_data.get("bleu_score", 0),
                 "avg_response_time": evaluation_data.get("avg_response_time", 0),
                 "samples": evaluation_data.get("samples", [])
             })

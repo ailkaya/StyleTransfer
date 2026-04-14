@@ -38,12 +38,13 @@ class EvaluationData(BaseModel):
     sample_count: int
 
     # Detailed metrics
-    semantic_score: float
+    # semantic_score: float
     char_retention: float
     style_score: float
     fluency_score: float
     vocab_diversity: float
     length_ratio: float
+    bleu_score: float
     avg_response_time: float
 
     # Sample pairs for comparison
@@ -119,12 +120,13 @@ async def get_evaluation(
                 "generated_at": task.completed_at.strftime('%Y-%m-%d %H:%M') if task.completed_at else "-",
                 "overall_score": 0,
                 "sample_count": 0,
-                "semantic_score": 0,
+                # "semantic_score": 0,
                 "char_retention": 0,
                 "style_score": 0,
                 "fluency_score": 0,
                 "vocab_diversity": 0,
                 "length_ratio": 0,
+                "bleu_score": 0,
                 "avg_response_time": 0,
                 "comment": None,
                 "samples": []
