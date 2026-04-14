@@ -65,3 +65,5 @@ temp/
 logs/
 *.log
 /backend/models
+/backend/training_data
+/backend/data

@@ -414,57 +414,55 @@ class DataPreprocessor:
         self.chunks = chunks
         return chunks
 
-    def _create_continuation_task(self, current: TextChunk, next_chunk: TextChunk) -> Dict:
+    def _create_continuation_task(self, current, next_chunk):
         """
-        构造续写任务（类型1）
-
-        取当前块的前半部分作为提示，后半部分+下一块作为答案
+        改进：
+        - 只给“前文”
+        - 不包含当前chunk后半（避免泄露）
         """
-        split_point = len(current.content) // 2
-        prompt_text = current.content[:split_point].strip()
-        completion = current.content[split_point:].strip()
 
-        # 添加下一块的开头部分（最多500字符）
-        next_part = next_chunk.content[:500].strip()
-        if next_part:
-            completion += " " + next_part
+        prompt = current.content.strip()
+
+        # 只用 next chunk 作为答案（关键）
+        completion = next_chunk.content[:800].strip()
 
         return {
             "system": self.system_prompt,
-            "instruction": f"{self.style_tag} 请续写：{prompt_text}",
-            "input": "",
+            "instruction": (
+                f"{self.style_tag}\n"
+                "请根据以下文本继续写作，保持语气、节奏和风格一致："
+            ),
+            "input": prompt,
             "output": completion,
             "task_type": "continuation",
-            "metadata": {
-                "chunk_id": current.source,
-                "prompt_length": len(prompt_text),
-                "output_length": len(completion)
-            }
         }
 
-    def _create_style_imitation_task(self, chunk: TextChunk) -> Dict:
+    def _create_style_imitation_task(self, chunk):
         """
-        构造风格模仿任务（类型2）
+        改进：
+        - 输入是“摘要/语义提示”
+        - 输出是原文
+        """
 
-        提取核心内容要求用目标风格重写
-        """
-        # 取前200字符作为场景描述提示
-        input_text = chunk.content[:200].strip()
-        if len(chunk.content) > 200:
-            input_text += "..."
+        summary = self._extract_semantic_hint(chunk.content)
 
         return {
             "system": self.system_prompt,
-            "instruction": f"{self.style_tag} 请用指定风格描写以下场景：",
-            "input": input_text,
+            "instruction": (
+                f"{self.style_tag}\n"
+                "根据以下要点，用指定风格进行完整描写："
+            ),
+            "input": summary,
             "output": chunk.content,
             "task_type": "style_imitation",
-            "metadata": {
-                "chunk_id": chunk.source,
-                "chunk_type": chunk.chunk_type,
-                "content_length": len(chunk.content)
-            }
         }
+    
+    def _extract_semantic_hint(self, text):
+        """
+        简单实现（可升级成LLM摘要）
+        """
+        sentences = text.split("。")[:3]
+        return "；".join(sentences)
 
     def generate_training_samples(self, chunks: List[TextChunk]) -> List[Dict]:
         """
@@ -473,11 +471,14 @@ class DataPreprocessor:
         生成类型：
         - 类型1：续写任务（如果有下文）
         - 类型2：风格模仿任务
-        忽略类型3：问答任务（根据需求）
         """
         samples = []
 
         for i, chunk in enumerate(chunks):
+            # 数据增强：随机截断
+            if random.random() < 0.3:
+                chunk.content = chunk.content[:int(len(chunk.content)*0.7)]
+
             # 类型1：续写任务（如果有下一个块）
             if i < len(chunks) - 1:
                 sample = self._create_continuation_task(chunk, chunks[i + 1])
@@ -487,46 +488,42 @@ class DataPreprocessor:
             sample = self._create_style_imitation_task(chunk)
             samples.append(sample)
 
-            # 注意：根据需求，类型3（问答任务）被忽略
-
         return samples
 
-    def to_custom_jsonl(self, samples: List[Dict]) -> List[Dict]:
-        """
-        转换为自定义JSONL格式
+    def to_sft_format(self, samples: List[Dict]) -> List[Dict]:
+        data = []
 
-        输出格式：
-        {
-            "system": "系统提示词",
-            "conversations": [
-                {"from": "human", "value": "用户指令\n输入内容"},
-                {"from": "gpt", "value": "输出内容"}
-            ],
-            "task_type": "continuation|style_imitation",
-            "metadata": {...}
-        }
-        """
-        jsonl_data = []
+        for i, s in enumerate(samples):
+            text = f"""<|system|>
+{s["system"]}
 
-        for i, sample in enumerate(samples):
-            # 构造对话内容
-            human_value = sample["instruction"]
-            if sample["input"]:
-                human_value += f"\n{sample['input']}"
+<|instruction|>
+{s["instruction"]}
 
-            conversation = {
-                "id": f"sample_{i:06d}",
-                "system": sample["system"],
-                "conversations": [
-                    {"from": "human", "value": human_value},
-                    {"from": "gpt", "value": sample["output"]}
-                ],
-                "task_type": sample.get("task_type", "general"),
-                "metadata": sample.get("metadata", {})
-            }
-            jsonl_data.append(conversation)
+<|input|>
+{s["input"]}
 
-        return jsonl_data
+<|response|>
+{s["output"]}"""
+
+            data.append({
+                "text": text,
+                "task_type": s["task_type"]
+            })
+
+        return data
+
+    def _extract_output_from_item(self, item: Dict) -> Optional[str]:
+        """从 formatted_data 中提取 output/response 内容。"""
+        text = item.get("text", "")
+        response_marker = "<|response|>\n"
+        if response_marker in text:
+            return text.split(response_marker, 1)[1]
+        # 兼容旧格式 conversations
+        try:
+            return item["conversations"][1]["value"]
+        except (KeyError, IndexError):
+            return None
 
     def validate_and_split(self, data: List[Dict],
                           train_ratio: float = 0.95) -> Tuple[List[Dict], List[Dict], Dict]:
@@ -539,18 +536,22 @@ class DataPreprocessor:
         # 过滤异常样本
         valid_data = []
         for item in data:
-            try:
-                output = item["conversations"][1]["value"]  # gpt response
-                output_len = len(output)
-
-                # 过滤过长或过短
-                if 50 < output_len < 3000:
-                    valid_data.append(item)
-            except (KeyError, IndexError):
+            output = self._extract_output_from_item(item)
+            if output is None:
                 continue
+            output_len = len(output)
+
+            # 过滤过长或过短
+            if 50 < output_len < 3000:
+                valid_data.append(item)
 
         # 统计信息
-        lengths = [len(d["conversations"][1]["value"]) for d in valid_data]
+        lengths = []
+        for d in valid_data:
+            output = self._extract_output_from_item(d)
+            if output is not None:
+                lengths.append(len(output))
+
         short_count = sum(1 for l in lengths if l < 500)
         medium_count = sum(1 for l in lengths if 500 <= l < 1500)
         long_count = sum(1 for l in lengths if l >= 1500)
@@ -600,7 +601,7 @@ class DataPreprocessor:
         samples = self.generate_training_samples(chunks)
 
         # Step 4: 转换为自定义JSONL格式
-        formatted_data = self.to_custom_jsonl(samples)
+        formatted_data = self.to_sft_format(samples)
 
         # Step 5: 验证和划分
         train_data, val_data, metadata = self.validate_and_split(formatted_data, train_ratio)

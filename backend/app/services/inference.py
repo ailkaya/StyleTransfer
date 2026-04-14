@@ -2,8 +2,10 @@
 
 import os
 import time
-from typing import List, Optional
+from typing import Dict, Optional, List
 import httpx
+import asyncio
+import gc
 from openai import AsyncOpenAI
 
 from ..schemas import ChatMessage
@@ -26,18 +28,111 @@ except ImportError:
     LOCAL_MODEL_AVAILABLE = False
     logger.warning("transformers/peft not installed, local model inference disabled")
 
+
+class AdapterCacheItem:
+    def __init__(self, model, last_used: float):
+        self.model = model
+        self.last_used = last_used
+
+
+class AdapterManager:
+    """
+    管理多个 LoRA adapter（支持并发 + LRU + 显存控制）
+    """
+
+    def __init__(self, max_adapters: int = 3, max_gpu_mb: int = 14000):
+        self.adapters: Dict[str, AdapterCacheItem] = {}
+        self.max_adapters = max_adapters
+        self.max_gpu_mb = max_gpu_mb
+        self.lock = asyncio.Lock()
+
+    def _gpu_used_mb(self):
+        if not torch.cuda.is_available():
+            return 0
+        return torch.cuda.memory_allocated() / 1024 / 1024
+
+    def _evict_if_needed(self):
+        """LRU + memory pressure eviction"""
+        if len(self.adapters) <= self.max_adapters:
+            return
+
+        # 按 last_used 排序
+        sorted_items = sorted(
+            self.adapters.items(),
+            key=lambda x: x[1].last_used
+        )
+
+        while len(sorted_items) > self.max_adapters:
+            style_id, item = sorted_items.pop(0)
+            del self.adapters[style_id]
+
+            del item.model
+            gc.collect()
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    def get(self, style_id: str):
+        item = self.adapters.get(style_id)
+        if item:
+            item.last_used = time.time()
+            return item.model
+        return None
+
+    def set(self, style_id: str, model):
+        self.adapters[style_id] = AdapterCacheItem(
+            model=model,
+            last_used=time.time()
+        )
+        self._evict_if_needed()
+
+
 class InferenceService:
-    """Service for calling external LLM API or local model for style transfer."""
 
     def __init__(self):
-        self.client: Optional[AsyncOpenAI] = None
-        self.model_name: str = "gpt-3.5-turbo"
-        self._init_client()
-
-        # Local model cache (style_id -> model)
-        self._local_models: dict = {}
-        self._base_model_name: Optional[str] = None
+        self._base_model = None
         self._tokenizer = None
+        self._base_model_name = None
+
+        max_adapters=3
+        gpu_budget_mb = self._get_gpu_memory_budget()
+
+        self.adapter_manager = AdapterManager(
+            max_adapters=max_adapters,
+            max_gpu_mb=gpu_budget_mb
+        )
+        logger.info(f"[Adapter] max_adapters={max_adapters}, max_gpu_mb={gpu_budget_mb}")
+
+        self._lock = asyncio.Lock()
+
+    def _get_gpu_memory_budget(self) -> float:
+        """
+        自动获取本机 GPU 显存，并计算可用于 adapter cache 的预算
+        """
+
+        if not torch.cuda.is_available():
+            logger.info("[GPU] No CUDA device found, fallback to CPU mode")
+            return 0
+
+        # 当前 GPU
+        device_count = torch.cuda.device_count()
+        device_id = 0  # 默认用第一个 GPU
+
+        total_mem = torch.cuda.get_device_properties(device_id).total_memory / 1024 / 1024
+
+        # 预留系统 / CUDA / fragmentation 开销
+        reserved_ratio = 0.30   # 30% 预留（很关键）
+
+        usable_mem = total_mem * (1 - reserved_ratio)
+
+        # 再保守一点：只允许 60% 用于 adapter cache
+        adapter_budget = usable_mem * 0.6
+
+        logger.info(f"[GPU] total={total_mem:.0f}MB, "
+            f"usable={usable_mem:.0f}MB, "
+            f"adapter_budget={adapter_budget:.0f}MB")
+
+        return adapter_budget
 
     def _init_client(self):
         """Initialize OpenAI client from config."""
@@ -95,26 +190,15 @@ class InferenceService:
                 self.model_name = settings.LLM_MODEL_NAME
                 logger.info(f"Inference service configured on-demand: {settings.LLM_BASE_URL}")
 
-    def _load_local_model(self, adapter_path: str, base_model_name: Optional[str] = None):
-        """
-        Load local base model with LoRA adapter.
+    def _load_base_model(self, base_model_name: str):
 
-        Args:
-            adapter_path: Path to the LoRA adapter directory
-            base_model_name: Base model name (e.g., 'Qwen/Qwen2.5-7B-Instruct')
+        if self._base_model_name == base_model_name:
+            return self._base_model, self._tokenizer
+        elif self._base_model_name is not None:
+            self.unload_model()
 
-        Returns:
-            Tuple of (model, tokenizer)
-        """
-        if not LOCAL_MODEL_AVAILABLE:
-            raise RuntimeError("transformers/peft not installed, cannot load local model")
+        logger.info(f"[BaseModel] loading {base_model_name}")
 
-        if base_model_name is None:
-            raise RuntimeError("base_model_name is required for loading local model")
-
-        logger.info(f"Loading local model: {base_model_name} with adapter: {adapter_path}")
-
-        # Configure quantization (QLoRA 4-bit)
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
@@ -122,16 +206,15 @@ class InferenceService:
             bnb_4bit_compute_dtype=torch.bfloat16
         )
 
-        # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(
             base_model_name,
             trust_remote_code=True,
             padding_side="left"
         )
+
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        # Load base model with quantization
         model = AutoModelForCausalLM.from_pretrained(
             base_model_name,
             quantization_config=bnb_config,
@@ -140,38 +223,73 @@ class InferenceService:
             torch_dtype=torch.bfloat16,
         )
 
-        # Load LoRA adapter
-        if os.path.exists(adapter_path):
-            model = PeftModel.from_pretrained(model, adapter_path)
-            logger.info(f"Loaded LoRA adapter from: {adapter_path}")
-        else:
-            logger.warning(f"Adapter path not found: {adapter_path}, using base model only")
-
         model.eval()
+
+        self._base_model = model
+        self._tokenizer = tokenizer
+        self._base_model_name = base_model_name
+
         return model, tokenizer
-
-    def get_style_model(self, style_id: str, adapter_path: Optional[str] = None, base_model_name: Optional[str] = None):
+    
+    def _load_adapter(self, adapter_path: str, style_id: str):
         """
-        Get or load cached local model for a style.
-
-        Args:
-            style_id: Style ID for cache key
-            adapter_path: Path to LoRA adapter
-            base_model_name: Base model name (e.g., 'Qwen/Qwen2.5-7B-Instruct')
-
-        Returns:
-            Tuple of (model, tokenizer)
+        如果 cache 有 → 直接复用
+        否则 → 加载新 adapter
         """
-        if style_id in self._local_models:
-            return self._local_models[style_id]
 
-        if adapter_path is None:
-            # Default adapter path
-            adapter_path = os.path.join(settings.MODELS_DIR, "adapters", style_id)
+        cached = self.adapter_manager.get(style_id)
+        if cached:
+            return cached
 
-        model, tokenizer = self._load_local_model(adapter_path, base_model_name)
-        self._local_models[style_id] = (model, tokenizer)
-        return model, tokenizer
+        logger.info(f"[LoRA] loading adapter {style_id}")
+
+        model = PeftModel.from_pretrained(
+            self._base_model,
+            adapter_path,
+            adapter_name=style_id
+        )
+
+        self.adapter_manager.set(style_id, model)
+
+        return model
+
+    # def get_style_model(self, style_id: str, adapter_path: Optional[str] = None, base_model_name: Optional[str] = None):
+    async def get_model(self, style_id: str, adapter_path: str, base_model_name: str):
+
+        async with self._lock:
+
+            # load base model if needed
+            model, tokenizer = self._load_base_model(base_model_name)
+
+            # load or reuse adapter
+            model = self._load_adapter(adapter_path, style_id)
+
+            return model, tokenizer
+        
+    def get_gpu_stats(self):
+        if not torch.cuda.is_available():
+            return {"gpu": False}
+
+        return {
+            "allocated_mb": torch.cuda.memory_allocated() / 1024 / 1024,
+            "reserved_mb": torch.cuda.memory_reserved() / 1024 / 1024,
+            "max_mb": torch.cuda.max_memory_allocated() / 1024 / 1024
+        }
+    
+    def check_memory_pressure(self):
+        if not torch.cuda.is_available():
+            return
+
+        used = torch.cuda.memory_allocated() / 1024 / 1024
+
+        if used > self.adapter_manager.max_gpu_mb:
+            logger.info("[WARN] GPU memory high, evicting adapters...")
+
+            # 清 LRU
+            self.adapter_manager._evict_if_needed()
+
+            torch.cuda.empty_cache()
+            gc.collect()
 
     async def get_adapter_path_from_db(self, style_id: str) -> Optional[str]:
         """
@@ -287,10 +405,7 @@ class InferenceService:
             base_model_name = await self.get_base_model_from_db(style_id)
 
             # Load or get cached model for this style
-            model, tokenizer = self.get_style_model(style_id, adapter_path, base_model_name)
-
-            # Build prompt
-            # prompt = self._build_prompt(original_text, requirement, target_style)
+            model, tokenizer = self.get_model(style_id, adapter_path, base_model_name)
 
             # Add system message for chat format
             messages = []
@@ -324,22 +439,29 @@ class InferenceService:
                 # Fallback to simple concatenation
                 input_text = f"{messages[0]['content']}\n\n{messages[1]['content']}"
 
-            # Tokenize
-            inputs = tokenizer(input_text, return_tensors="pt", padding=True, truncation=True, max_length=2048)
+            self.check_memory_pressure()
+
+            inputs = tokenizer(
+                input_text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=2048
+            )
+
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
-            # Generate
             start_time = time.time()
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
                     max_new_tokens=512,
+                    do_sample=True,
                     temperature=0.7,
                     top_p=0.9,
-                    do_sample=True,
                     pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
                 )
+
             inference_time = time.time() - start_time
 
             # Decode
@@ -488,6 +610,71 @@ class InferenceService:
             logger.error(f"LLM adjustment call failed: {e}")
             raise
 
+    def unload_model(self):
+        if not GENERATING_MOCK_MODE:
+            self.unload_model_true()
+
+    def unload_model_true(self):
+        """
+        卸载当前运行的模型（base model + adapters + tokenizer）
+        用于释放 GPU 显存
+        """
+
+        import gc
+        import torch
+
+        logger.info("[Unload] Starting model cleanup...")
+
+        try:
+            # 卸载 LoRA / PEFT wrapper
+            if self._base_model is not None:
+                try:
+                    # PEFT模型可能有 active adapter
+                    if hasattr(self._base_model, "disable_adapter"):
+                        self._base_model.disable_adapter()
+
+                    if hasattr(self._base_model, "active_adapters"):
+                        self._base_model.active_adapters = None
+                except Exception as e:
+                    logger.warning(f"[Unload] adapter cleanup warning: {e}")
+
+            # 删除 base model
+            if self._base_model is not None:
+                del self._base_model
+                self._base_model = None
+
+            # 删除 tokenizer
+            if self._tokenizer is not None:
+                del self._tokenizer
+                self._tokenizer = None
+
+            # 清空 adapter cache（关键）
+            if hasattr(self, "adapter_manager"):
+                if hasattr(self.adapter_manager, "adapters"):
+                    for style_id, item in list(self.adapter_manager.adapters.items()):
+                        try:
+                            del item.model
+                        except Exception:
+                            pass
+
+                    self.adapter_manager.adapters.clear()
+
+            # 重置状态
+            self._base_model_name = None
+
+            # Python GC
+            gc.collect()
+
+            # CUDA cache 清理
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+
+            logger.info("[Unload] Model cleanup completed successfully")
+
+        except Exception as e:
+            logger.error(f"[Unload] Failed to unload model: {e}")
+            raise
 
 # Global inference service instance (lazy initialization)
 _inference_service = None

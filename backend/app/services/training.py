@@ -46,15 +46,118 @@ class TrainingService:
         self.models_dir = os.path.join(os.getcwd(), "models", "adapters")
         os.makedirs(self.models_dir, exist_ok=True)
         self.training_config = {
+
+            # ===== LoRA相关 =====
+
             "lora_r": 16,
-            "lora_alpha": 32,
-            "lora_dropout": 0.05,
+            # LoRA的秩（rank），决定低秩矩阵的维度
+            # ↑ r → 模型表达能力更强（能学更复杂风格）
+            # ↑ r → 显存占用增加、过拟合风险增加
+            # 常用：8（轻量） / 16（推荐） / 32（高质量任务）
+
+            # "lora_alpha": 32,
+            # LoRA缩放系数（scaling factor）
+            # 实际生效强度 = alpha / r
+            # ↑ alpha → LoRA更新对模型影响更大
+            # 一般设置为 2 × r（如16→32）
+
+            "lora_dropout": 0.1,
+            # LoRA层的dropout概率
+            # 防止过拟合（尤其小数据集很重要）
+            # 常用：0.05 ~ 0.1
+
+
+            # ===== 训练轮数 =====
+
+            "num_epochs": 3,
+            # 训练轮数（整个数据集重复训练的次数）
+            # ↑ epoch → 更容易收敛，但可能过拟合
+            # 小数据：3~5，大数据：1~3
+
+
+            # ===== 学习率相关 =====
+
             "learning_rate": 2e-4,
-            "per_device_train_batch_size": 1,
-            "gradient_accumulation_steps": 4,
-            "max_seq_length": 512,
-            "warmup_steps": 100,
+            # 初始学习率（LoRA训练通常比全参数训练大）
+            # ↑ lr → 收敛更快，但可能震荡/不稳定
+            # 推荐：
+            # r=8 → 2e-4
+            # r=16 → 1e-4 ~ 2e-4
+
+
+            # ===== Batch控制 =====
+
+            "per_device_train_batch_size": 2,
+            # 每张GPU上的batch size
+            # 直接影响显存占用（最敏感参数之一）
+
+            "gradient_accumulation_steps": 8,
+            # 梯度累积步数（模拟更大batch）
+            # 实际batch = batch_size × accumulation
+            # 这里等效 batch = 2 × 8 = 16
+            # 用于在显存不足时扩大batch
+
+
+            # ===== 序列长度 =====
+
+            "max_seq_length": 2048,
+            # 最大token长度（上下文窗口）
+            # ↑ length → 能处理更长文本，但显存指数增长
+            # 这是显存最大消耗来源之一
+            # 常用：512 / 1024 / 2048
+
+
+            # ===== 学习率预热 =====
+
+            "warmup_ratio": 0.05,
+            # 预热比例（前5%训练步骤逐步增加学习率）
+            # 防止训练初期梯度不稳定
+            # 常用：0.03 ~ 0.1
+
+
+            # ===== 日志 =====
+
             "logging_steps": 10,
+            # 每多少step记录一次日志（loss等）
+            # 太小 → 日志频繁（影响速度）
+            # 太大 → 监控不及时
+
+
+            # ===== 模型保存 =====
+
+            "save_total_limit": 2,
+            # 最多保留多少个checkpoint
+            # 防止磁盘爆满
+            # 旧的checkpoint会被自动删除
+
+
+            # ===== 正则化 =====
+
+            "weight_decay": 0.01,
+            # 权重衰减（L2正则）
+            # 防止模型过拟合
+            # LoRA中作用较小，但建议保留
+
+
+            "max_grad_norm": 1.0,
+            # 梯度裁剪（gradient clipping）
+            # 防止梯度爆炸
+            # 常用：0.5 ~ 1.0
+
+
+            # ===== 验证策略 =====
+
+            "evaluation_strategy": "steps",
+            # 评估策略：
+            # "no" → 不评估
+            # "epoch" → 每个epoch评估
+            # "steps" → 每N步评估（更细粒度，推荐）
+
+            "eval_steps": 50,
+            # 每多少step进行一次验证
+            # 与 evaluation_strategy="steps" 配合使用
+            # 用于监控val loss变化
+
         }
 
     def generate_adapter_file(self, style_id: str, task_id: str) -> str:
@@ -129,7 +232,6 @@ class TrainingService:
     def training_progress_true(
         self,
         task_id: str,
-        total_epochs: int,
         training_text: Optional[str] = None,
         validation_text: Optional[list] = None,
         config: Optional[Dict[str, Any]] = None,
@@ -164,8 +266,10 @@ class TrainingService:
             raise ValueError("base_model is required for QLoRA training")
 
         start_time = time.time()
-        adapter_dir = os.path.join(self.models_dir, str(task_id))
-        os.makedirs(adapter_dir, exist_ok=True)
+        output_dir = os.path.join(self.models_dir, str(task_id))
+        os.makedirs(output_dir, exist_ok=True)
+
+        total_epochs = train_config["num_epochs"]
 
         # Progress callback wrapper
         class ProgressCallback:
@@ -265,159 +369,107 @@ class TrainingService:
 
             # Prepare model for k-bit training
             model = prepare_model_for_kbit_training(model)
+            model.gradient_checkpointing_enable()
+            model.config.use_cache = False
 
             # Configure LoRA
             lora_config = LoraConfig(
                 r=train_config["lora_r"],
-                lora_alpha=train_config["lora_alpha"],
-                target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                lora_alpha=2*train_config["lora_r"],
+                target_modules=["q_proj", "v_proj"],
                 lora_dropout=train_config["lora_dropout"],
                 bias="none",
-                task_type=TaskType.CAUSAL_LM,
+                task_type="CAUSAL_LM",
             )
 
             model = get_peft_model(model, lora_config)
 
-            # Prepare dataset
-            # Handle both old format (plain string) and new format (DataPreprocessor output)
-            texts = []
-            if isinstance(training_text, list):
-                # New format: DataPreprocessor output with conversations
-                for sample in training_text:
-                    if isinstance(sample, dict) and "conversations" in sample:
-                        # Extract the conversation text in a format suitable for training
-                        # Format: "Human: {value}\nAssistant: {value}"
-                        convo = sample["conversations"]
-                        if len(convo) >= 2:
-                            human_text = convo[0].get("value", "")
-                            assistant_text = convo[1].get("value", "")
-                            # Create a formatted training example
-                            formatted = f"### System: {sample.get('system', '')}\n\n### Human: {human_text}\n\n### Assistant: {assistant_text}"
-                            texts.append(formatted)
-                    elif isinstance(sample, dict) and "text" in sample:
-                        # Old format with text field
-                        texts.append(sample["text"])
-                    elif isinstance(sample, str):
-                        texts.append(sample)
-            elif isinstance(training_text, str):
-                # Legacy format: plain string
-                texts = [t.strip() for t in training_text.split('\n') if t.strip()]
-                if len(texts) < 1:
-                    texts = [training_text]
-            else:
-                texts = [str(training_text)]
+            # ========= Dataset =========
+            train_dataset = Dataset.from_list(training_text)
+            val_dataset = Dataset.from_list(validation_text)
 
-            if len(texts) < 1:
-                raise ValueError("No valid training samples found in training_text")
+            # ========= tokenize + label mask =========
+            def tokenize_fn(example):
+                text = example["text"]
 
-            logger.info(f"[Training] Prepared {len(texts)} training samples")
-
-            # Create dataset
-            def tokenize_function(examples):
-                return tokenizer(
-                    examples["text"],
+                tokenized = tokenizer(
+                    text,
                     truncation=True,
                     max_length=train_config["max_seq_length"],
-                    padding="max_length"
                 )
 
-            dataset = Dataset.from_dict({"text": texts})
-            tokenized_dataset = dataset.map(
-                tokenize_function,
-                batched=True,
-                remove_columns=dataset.column_names
-            )
+                input_ids = tokenized["input_ids"]
+                labels = input_ids.copy()
 
-            # Prepare validation dataset if provided
-            eval_dataset = None
-            if validation_text:
-                val_texts = []
-                if isinstance(validation_text, list):
-                    for sample in validation_text:
-                        if isinstance(sample, dict) and "conversations" in sample:
-                            convo = sample["conversations"]
-                            if len(convo) >= 2:
-                                human_text = convo[0].get("value", "")
-                                assistant_text = convo[1].get("value", "")
-                                formatted = f"### System: {sample.get('system', '')}\n\n### Human: {human_text}\n\n### Assistant: {assistant_text}"
-                                val_texts.append(formatted)
-                        elif isinstance(sample, dict) and "text" in sample:
-                            val_texts.append(sample["text"])
-                        elif isinstance(sample, str):
-                            val_texts.append(sample)
+                # mask <|response|> 前
+                split_token = "<|response|>"
+                idx = text.find(split_token)
 
-                if val_texts:
-                    val_dataset = Dataset.from_dict({"text": val_texts})
-                    eval_dataset = val_dataset.map(
-                        tokenize_function,
-                        batched=True,
-                        remove_columns=val_dataset.column_names
-                    )
-                    logger.info(f"[Training] Prepared {len(val_texts)} validation samples")
+                if idx != -1:
+                    prefix = tokenizer(text[:idx])["input_ids"]
+                    labels[:len(prefix)] = [-100] * len(prefix)
 
-            # Data collator
+                return {
+                    "input_ids": input_ids,
+                    "attention_mask": tokenized["attention_mask"],
+                    "labels": labels
+                }
+
+            train_dataset = train_dataset.map(tokenize_fn)
+            val_dataset = val_dataset.map(tokenize_fn)
+
+            print(val_dataset)
+
+            # ========= collator =========
             data_collator = DataCollatorForLanguageModeling(
                 tokenizer=tokenizer,
-                mlm=False
+                mlm=False,
+                pad_to_multiple_of=8
             )
 
-            # Training arguments
-            training_args_kwargs = dict(
-                output_dir=adapter_dir,
-                num_train_epochs=total_epochs,
+            # ========= 训练参数 =========
+            args = TrainingArguments(
+                output_dir=output_dir,
+                num_train_epochs=train_config["num_epochs"],
                 per_device_train_batch_size=train_config["per_device_train_batch_size"],
                 gradient_accumulation_steps=train_config["gradient_accumulation_steps"],
-                warmup_steps=train_config["warmup_steps"],
+
                 learning_rate=train_config["learning_rate"],
+                lr_scheduler_type="cosine",
+                warmup_ratio=train_config["warmup_ratio"],
+
                 logging_steps=train_config["logging_steps"],
+                logging_strategy="steps",
+
                 save_strategy="epoch",
-                save_total_limit=1,
-                fp16=False,
+                save_total_limit=train_config["save_total_limit"],
+
                 bf16=True,
+                fp16=False,
+
+                weight_decay=train_config["weight_decay"],
+                max_grad_norm=train_config["max_grad_norm"],
+
+                evaluation_strategy=train_config["evaluation_strategy"],
+                eval_steps=train_config["eval_steps"],
+
                 report_to=[],
-                remove_unused_columns=False,
             )
 
-            # Add evaluation if validation data exists
-            if eval_dataset is not None:
-                training_args_kwargs.update({
-                    "evaluation_strategy": "epoch",
-                    "eval_steps": train_config["logging_steps"],
-                    "load_best_model_at_end": True,
-                    "metric_for_best_model": "eval_loss",
-                })
-
-            training_args = TrainingArguments(**training_args_kwargs)
-
-            # Progress callback
-            progress_callback = ProgressCallback(
-                self, task_id, total_epochs, start_time, on_progress
-            )
-
-            # Initialize trainer
-            trainer_kwargs = dict(
+            # ========= Trainer =========
+            trainer = Trainer(
                 model=model,
-                args=training_args,
-                train_dataset=tokenized_dataset,
+                args=args,
+                train_dataset=train_dataset,
+                eval_dataset=val_dataset,
                 data_collator=data_collator,
-                callbacks=[],
             )
 
-            # Add eval dataset if available
-            if eval_dataset is not None:
-                trainer_kwargs["eval_dataset"] = eval_dataset
-
-            trainer = Trainer(**trainer_kwargs)
-
-            # Add progress callback
-            trainer.add_callback(progress_callback)
-
-            # Train
             trainer.train()
 
             # Save final adapter
-            model.save_pretrained(adapter_dir)
-            tokenizer.save_pretrained(adapter_dir)
+            model.save_pretrained(output_dir)
+            tokenizer.save_pretrained(output_dir)
 
             # Training complete
             final_progress = {
@@ -435,7 +487,7 @@ class TrainingService:
             if on_progress:
                 on_progress(final_progress)
 
-            return adapter_dir
+            return output_dir
 
         except Exception as e:
             # Report failure
