@@ -10,29 +10,7 @@ import random
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-# QLoRA training imports
-try:
-    import torch
-    from transformers import (
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        TrainingArguments,
-        Trainer,
-        DataCollatorForLanguageModeling,
-        BitsAndBytesConfig
-    )
-    from peft import (
-        LoraConfig,
-        get_peft_model,
-        prepare_model_for_kbit_training,
-        TaskType
-    )
-    from datasets import Dataset
-    QLORA_AVAILABLE = True
-except ImportError:
-    QLORA_AVAILABLE = False
-
-from ..utils import get_logger
+from ..utils import get_logger, clean_and_filter_dataset, BASE_MODEL_MAP
 logger = get_logger(__name__)
 
 from config import settings
@@ -87,7 +65,7 @@ class TrainingService:
 
             # ===== Batch控制 =====
 
-            "per_device_train_batch_size": 2,
+            "batch_size": 1,
             # 每张GPU上的batch size
             # 直接影响显存占用（最敏感参数之一）
 
@@ -100,19 +78,11 @@ class TrainingService:
 
             # ===== 序列长度 =====
 
-            "max_seq_length": 2048,
+            "max_length": 2048,
             # 最大token长度（上下文窗口）
             # ↑ length → 能处理更长文本，但显存指数增长
             # 这是显存最大消耗来源之一
             # 常用：512 / 1024 / 2048
-
-
-            # ===== 学习率预热 =====
-
-            "warmup_ratio": 0.05,
-            # 预热比例（前5%训练步骤逐步增加学习率）
-            # 防止训练初期梯度不稳定
-            # 常用：0.03 ~ 0.1
 
 
             # ===== 日志 =====
@@ -147,7 +117,7 @@ class TrainingService:
 
             # ===== 验证策略 =====
 
-            "evaluation_strategy": "steps",
+            "eval_strategy": "steps",
             # 评估策略：
             # "no" → 不评估
             # "epoch" → 每个epoch评估
@@ -222,7 +192,6 @@ class TrainingService:
             )
         return self.training_progress_true(
             task_id=task_id,
-            total_epochs=total_epochs,
             training_text=training_text,
             validation_text=validation_text,
             config=config,
@@ -247,11 +216,29 @@ class TrainingService:
             config: Training configuration dict
             on_progress: Callback function(progress_dict) for progress updates
         """
-        if not QLORA_AVAILABLE:
+        # Import here (not at module level) to avoid initializing CUDA in Celery's parent fork process
+        try:
+            import torch
+            from transformers import (
+                AutoModelForCausalLM,
+                AutoTokenizer,
+                TrainingArguments,
+                Trainer,
+                TrainerCallback,
+                DataCollatorForLanguageModeling,
+                BitsAndBytesConfig
+            )
+            from peft import (
+                LoraConfig,
+                get_peft_model,
+                prepare_model_for_kbit_training,
+            )
+            from datasets import Dataset
+        except ImportError as e:
             raise RuntimeError(
                 "QLoRA training requires transformers, peft, and datasets. "
                 "Install with: pip install transformers peft datasets accelerate bitsandbytes"
-            )
+            ) from e
 
         if not training_text:
             raise ValueError("training_text is required for QLoRA training")
@@ -261,9 +248,12 @@ class TrainingService:
         if config:
             train_config.update(config)
 
+        logger.info(f"[Training] training config: {train_config}")
+
         base_model = train_config.get("base_model")
         if not base_model:
             raise ValueError("base_model is required for QLoRA training")
+        base_model = BASE_MODEL_MAP.get(base_model, base_model)
 
         start_time = time.time()
         output_dir = os.path.join(self.models_dir, str(task_id))
@@ -272,15 +262,15 @@ class TrainingService:
         total_epochs = train_config["num_epochs"]
 
         # Progress callback wrapper
-        class ProgressCallback:
+        class ProgressCallback(TrainerCallback):
             def __init__(self, outer, task_id, total_epochs, start_time, on_progress):
                 self.outer = outer
                 self.task_id = task_id
                 self.total_epochs = total_epochs
                 self.start_time = start_time
                 self.on_progress = on_progress
-                self.current_step = 0
-                self.total_steps = total_epochs * 10  # Approximate
+                # self.current_step = 0
+                # self.total_steps = total_epochs * 10  # Approximate
 
             def on_log(self, args, state, control, logs=None, **kwargs):
                 if logs and self.on_progress:
@@ -295,6 +285,9 @@ class TrainingService:
                         remaining = 0
 
                     loss = logs.get('loss', 0.0)
+                    grad_norm = logs.get('grad_norm')
+                    lr = logs.get('learning_rate')
+                    epoch = logs.get('epoch', state.epoch)
                     current_epoch = int(epoch) + 1
 
                     progress_data = {
@@ -303,12 +296,19 @@ class TrainingService:
                         "progress": progress,
                         "current_epoch": min(current_epoch, self.total_epochs),
                         "total_epochs": self.total_epochs,
+
                         "current_loss": round(loss, 4),
+                        "grad_norm": round(grad_norm, 4) if grad_norm else None,
+                        "learning_rate": lr,
+                        "epoch": round(epoch, 3),
+
                         "elapsed_time": elapsed,
                         "estimated_remaining": remaining,
                         "log_lines": [
-                            f"Epoch {current_epoch}/{self.total_epochs}: training",
-                            f"Loss: {loss:.4f}" if loss else "Initializing...",
+                            f"Epoch {epoch:.3f}/{self.total_epochs}",
+                            f"Loss: {loss:.4f}",
+                            f"Grad Norm: {grad_norm:.4f}" if grad_norm else "",
+                            f"Learning Rate: {lr:.6f}" if lr else "",
                             f"Progress: {progress}%",
                             f"Elapsed: {elapsed}s",
                         ],
@@ -316,20 +316,6 @@ class TrainingService:
                     self.on_progress(progress_data)
 
         try:
-            # Report initialization
-            if on_progress:
-                on_progress({
-                    "task_id": task_id,
-                    "status": "PROCESSING",
-                    "progress": 0,
-                    "current_epoch": 1,
-                    "total_epochs": total_epochs,
-                    "current_loss": 0.0,
-                    "elapsed_time": 0,
-                    "estimated_remaining": 0,
-                    "log_lines": ["Loading base model..."],
-                })
-
             # Configure quantization (4-bit)
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -340,7 +326,7 @@ class TrainingService:
 
             # Load tokenizer and model
             tokenizer = AutoTokenizer.from_pretrained(
-                train_config["base_model"],
+                base_model,
                 trust_remote_code=True
             )
             if tokenizer.pad_token is None:
@@ -360,7 +346,7 @@ class TrainingService:
                 })
 
             model = AutoModelForCausalLM.from_pretrained(
-                train_config["base_model"],
+                base_model,
                 quantization_config=bnb_config,
                 device_map="auto",
                 trust_remote_code=True,
@@ -384,41 +370,48 @@ class TrainingService:
 
             model = get_peft_model(model, lora_config)
 
+            training_text = clean_and_filter_dataset(training_text)
+            validation_text = clean_and_filter_dataset(validation_text or [])
+
             # ========= Dataset =========
             train_dataset = Dataset.from_list(training_text)
-            val_dataset = Dataset.from_list(validation_text)
+            val_dataset = Dataset.from_list(validation_text or [])
 
             # ========= tokenize + label mask =========
             def tokenize_fn(example):
                 text = example["text"]
 
+                # ===== 兜底保护 =====
+                if not isinstance(text, str):
+                    text = str(text)
+
                 tokenized = tokenizer(
                     text,
                     truncation=True,
-                    max_length=train_config["max_seq_length"],
+                    max_length=train_config["max_length"],
+                    padding="max_length",
                 )
 
                 input_ids = tokenized["input_ids"]
-                labels = input_ids.copy()
+                # ===== 防止嵌套 =====
+                if len(input_ids) > 0 and isinstance(input_ids[0], list):
+                    raise ValueError(f"Nested input_ids detected: {input_ids}")
 
-                # mask <|response|> 前
-                split_token = "<|response|>"
-                idx = text.find(split_token)
+                labels = list(input_ids)
 
-                if idx != -1:
-                    prefix = tokenizer(text[:idx])["input_ids"]
-                    labels[:len(prefix)] = [-100] * len(prefix)
+                # mask padding
+                for i, m in enumerate(tokenized["attention_mask"]):
+                    if m == 0:
+                        labels[i] = -100
 
                 return {
                     "input_ids": input_ids,
                     "attention_mask": tokenized["attention_mask"],
-                    "labels": labels
+                    "labels": labels,
                 }
 
-            train_dataset = train_dataset.map(tokenize_fn)
-            val_dataset = val_dataset.map(tokenize_fn)
-
-            print(val_dataset)
+            train_dataset = train_dataset.map(tokenize_fn, remove_columns=train_dataset.column_names)
+            val_dataset = val_dataset.map(tokenize_fn, remove_columns=val_dataset.column_names)
 
             # ========= collator =========
             data_collator = DataCollatorForLanguageModeling(
@@ -428,15 +421,21 @@ class TrainingService:
             )
 
             # ========= 训练参数 =========
+            train_samples = len(train_dataset)
+            effective_batch_size = train_config["batch_size"] * train_config["gradient_accumulation_steps"]
+            steps_per_epoch = max(1, train_samples // effective_batch_size)
+            total_steps = steps_per_epoch * total_epochs
+            warmup_steps = int(total_steps * 0.05)
+
             args = TrainingArguments(
                 output_dir=output_dir,
                 num_train_epochs=train_config["num_epochs"],
-                per_device_train_batch_size=train_config["per_device_train_batch_size"],
+                per_device_train_batch_size=train_config["batch_size"],
                 gradient_accumulation_steps=train_config["gradient_accumulation_steps"],
 
                 learning_rate=train_config["learning_rate"],
                 lr_scheduler_type="cosine",
-                warmup_ratio=train_config["warmup_ratio"],
+                warmup_steps=warmup_steps,
 
                 logging_steps=train_config["logging_steps"],
                 logging_strategy="steps",
@@ -450,7 +449,7 @@ class TrainingService:
                 weight_decay=train_config["weight_decay"],
                 max_grad_norm=train_config["max_grad_norm"],
 
-                evaluation_strategy=train_config["evaluation_strategy"],
+                eval_strategy=train_config["eval_strategy"],
                 eval_steps=train_config["eval_steps"],
 
                 report_to=[],
@@ -463,6 +462,7 @@ class TrainingService:
                 train_dataset=train_dataset,
                 eval_dataset=val_dataset,
                 data_collator=data_collator,
+                callbacks=[ProgressCallback(self, task_id, total_epochs, start_time, on_progress)]
             )
 
             trainer.train()

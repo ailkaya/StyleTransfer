@@ -62,11 +62,6 @@ class Task(Base):
         nullable=True,
         comment="训练日志"
     )
-    result_path: Mapped[str] = mapped_column(
-        String(255),
-        nullable=True,
-        comment="输出模型路径"
-    )
     training_data_path: Mapped[str] = mapped_column(
         String(255),
         nullable=True,

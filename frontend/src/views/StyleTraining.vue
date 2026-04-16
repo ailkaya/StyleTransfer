@@ -313,6 +313,7 @@
                 </div>
                 <div class="config-control">
                   <el-radio-group v-model="form.config.batch_size" size="large">
+                    <el-radio-button :label="1">1</el-radio-button>
                     <el-radio-button :label="2">2</el-radio-button>
                     <el-radio-button :label="4">4</el-radio-button>
                     <el-radio-button :label="8">8</el-radio-button>

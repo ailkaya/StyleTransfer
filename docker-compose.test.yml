@@ -39,23 +39,6 @@ services:
     networks:
       - style_transfer_network
 
-  # (可选) 数据库管理界面
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: style_transfer_pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - style_transfer_network
-    profiles:
-      - tools
-
 volumes:
   postgres_data:
   redis_data:

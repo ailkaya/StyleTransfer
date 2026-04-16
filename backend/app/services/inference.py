@@ -1,6 +1,6 @@
 """Inference service for style transfer using external LLM API."""
 
-import os
+import re
 import time
 from typing import Dict, Optional, List
 import httpx
@@ -9,7 +9,7 @@ import gc
 from openai import AsyncOpenAI
 
 from ..schemas import ChatMessage
-from ..utils import get_logger
+from ..utils import get_logger, BASE_MODEL_MAP
 from ..db_operations import DatabaseOperations
 
 logger = get_logger(__name__)
@@ -45,6 +45,7 @@ class AdapterManager:
         self.max_adapters = max_adapters
         self.max_gpu_mb = max_gpu_mb
         self.lock = asyncio.Lock()
+        logger.info(f"[AdapterManager] max_adapters: {max_adapters}, max_gpu_mb: {max_gpu_mb}")
 
     def _gpu_used_mb(self):
         if not torch.cuda.is_available():
@@ -73,6 +74,7 @@ class AdapterManager:
                 torch.cuda.empty_cache()
 
     def get(self, style_id: str):
+        style_id = str(style_id)
         item = self.adapters.get(style_id)
         if item:
             item.last_used = time.time()
@@ -80,6 +82,7 @@ class AdapterManager:
         return None
 
     def set(self, style_id: str, model):
+        style_id = str(style_id)
         self.adapters[style_id] = AdapterCacheItem(
             model=model,
             last_used=time.time()
@@ -90,9 +93,13 @@ class AdapterManager:
 class InferenceService:
 
     def __init__(self):
+        self.client = None
+        self.model_name = None
         self._base_model = None
         self._tokenizer = None
         self._base_model_name = None
+
+        self._init_client()
 
         max_adapters=3
         gpu_budget_mb = self._get_gpu_memory_budget()
@@ -166,14 +173,12 @@ class InferenceService:
         target_style: str,
     ) -> str:
         """Build the prompt for style transfer."""
-        prompt = f"""请对用户输入进行回复。
-
+        prompt = f"""
 用户输入：{requirement}
 
-附带的文字：
+附带的文本：
 {original_text}
-
-请直接输出回复文本，不要添加任何解释说明。"""
+"""
         return prompt
 
     def _ensure_configured(self):
@@ -191,13 +196,15 @@ class InferenceService:
                 logger.info(f"Inference service configured on-demand: {settings.LLM_BASE_URL}")
 
     def _load_base_model(self, base_model_name: str):
+        base_model_name = BASE_MODEL_MAP.get(base_model_name, base_model_name)
 
         if self._base_model_name == base_model_name:
-            return self._base_model, self._tokenizer
+            logger.info(f"[LoadBaseModel] {base_model_name} running")
+            return self._tokenizer
         elif self._base_model_name is not None:
             self.unload_model()
 
-        logger.info(f"[BaseModel] loading {base_model_name}")
+        logger.info(f"[LoadBaseModel] loading {base_model_name}")
 
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -221,6 +228,7 @@ class InferenceService:
             device_map="auto",
             trust_remote_code=True,
             torch_dtype=torch.bfloat16,
+            attn_implementation="sdpa",
         )
 
         model.eval()
@@ -229,16 +237,18 @@ class InferenceService:
         self._tokenizer = tokenizer
         self._base_model_name = base_model_name
 
-        return model, tokenizer
+        return tokenizer
     
     def _load_adapter(self, adapter_path: str, style_id: str):
         """
         如果 cache 有 → 直接复用
         否则 → 加载新 adapter
         """
+        style_id = str(style_id)
 
         cached = self.adapter_manager.get(style_id)
         if cached:
+            logger.info(f"[LoRA] adapter {style_id} cached")
             return cached
 
         logger.info(f"[LoRA] loading adapter {style_id}")
@@ -259,7 +269,7 @@ class InferenceService:
         async with self._lock:
 
             # load base model if needed
-            model, tokenizer = self._load_base_model(base_model_name)
+            tokenizer = self._load_base_model(base_model_name)
 
             # load or reuse adapter
             model = self._load_adapter(adapter_path, style_id)
@@ -293,24 +303,23 @@ class InferenceService:
 
     async def get_adapter_path_from_db(self, style_id: str) -> Optional[str]:
         """
-        Get adapter path from tasks table by style_id.
+        Get adapter path from styles table by style_id.
 
         Args:
             style_id: Style ID to look up
 
         Returns:
-            Adapter path (result_path) or None if not found
+            Adapter path or None if not found
         """
         db = DatabaseOperations(async_mode=True)
         try:
-            # Get the latest completed task for this style
-            task = await db.get_latest_task_by_style_async(style_id, status="COMPLETED")
+            style = await db.get_style_async(style_id)
 
-            if task and task.result_path:
-                logger.info(f"Found adapter path for style {style_id}: {task.result_path}")
-                return task.result_path
+            if style and style.adapter_path:
+                logger.info(f"Found adapter path for style {style_id}: {style.adapter_path}")
+                return style.adapter_path
 
-            logger.warning(f"No completed task with adapter path found for style {style_id}")
+            logger.warning(f"No adapter path found for style {style_id}")
             return None
         finally:
             await db.close_async()
@@ -332,8 +341,9 @@ class InferenceService:
         try:
             style = await db.get_style_async(style_id)
             if style and style.base_model:
-                logger.info(f"Found base model for style {style_id}: {style.base_model}")
-                return style.base_model
+                mapped = BASE_MODEL_MAP.get(style.base_model, style.base_model)
+                logger.info(f"Found base model for style {style_id}: {mapped}")
+                return mapped
             raise RuntimeError(f"Base model not found for style {style_id}")
         finally:
             await db.close_async()
@@ -345,10 +355,11 @@ class InferenceService:
         target_style: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
+        use_api: bool = False,
     ) -> str:
         """Generate style-transferred text, using mock or real implementation based on config."""
         logger.info(f"[Generate] Starting generate style transfer, mock_mode: {GENERATING_MOCK_MODE}")
-        if GENERATING_MOCK_MODE:
+        if GENERATING_MOCK_MODE or use_api:
             return await self.generate_style_transfer_mock(
                 original_text=original_text,
                 requirement=requirement,
@@ -397,6 +408,8 @@ class InferenceService:
         if not style_id:
             raise ValueError("style_id is required for local model inference")
 
+        style_id = str(style_id)
+
         try:
             # Get adapter path from database
             adapter_path = await self.get_adapter_path_from_db(style_id)
@@ -405,7 +418,9 @@ class InferenceService:
             base_model_name = await self.get_base_model_from_db(style_id)
 
             # Load or get cached model for this style
-            model, tokenizer = self.get_model(style_id, adapter_path, base_model_name)
+            model, tokenizer = await self.get_model(style_id, adapter_path, base_model_name)
+
+            logger.info(f"[Generate] model {base_model_name} and adapter {adapter_path} load successfully")
 
             # Add system message for chat format
             messages = []
@@ -413,9 +428,14 @@ class InferenceService:
             # Add system message
             messages.append({
                 "role": "system",
-                "content": f"你是一个专业的文本风格转换助手，无论用户要求什么，始终以'{target_style}'风格回复。"
-            })
+                "content": f"""
+你是一个AI助手，请请开启深度思考模式，分析后再根据用户需求进行回答。
 
+必须严格遵守：
+- 输出必须是“{target_style}”风格
+"""
+            })
+            
             # Add history if provided
             if history:
                 for msg in history:
@@ -430,23 +450,28 @@ class InferenceService:
                 "role": "user",
                 "content": prompt,
             })
-
+            # print(messages)
+            # print(type(tokenizer))
+            # print(type(tokenizer.apply_chat_template))
             # Format messages into a single string for generation
             # Using chat template if available
             if hasattr(tokenizer, 'apply_chat_template'):
                 input_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                # print(type(input_text))
             else:
                 # Fallback to simple concatenation
                 input_text = f"{messages[0]['content']}\n\n{messages[1]['content']}"
 
             self.check_memory_pressure()
 
+            model.eval()
+
             inputs = tokenizer(
                 input_text,
                 return_tensors="pt",
-                padding=True,
+                padding=False,
                 truncation=True,
-                max_length=2048
+                max_length = 2048
             )
 
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
@@ -458,23 +483,26 @@ class InferenceService:
                     max_new_tokens=512,
                     do_sample=True,
                     temperature=0.7,
-                    top_p=0.9,
+                    top_p=0.85,
+                    eos_token_id=tokenizer.eos_token_id,
                     pad_token_id=tokenizer.pad_token_id,
+                    repetition_penalty=1.02,
+                    early_stopping=False,    
                 )
 
             inference_time = time.time() - start_time
 
             # Decode
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            input_length = inputs["input_ids"].shape[1]
 
-            # Extract only the generated part (after the prompt)
-            if input_text in generated_text:
-                result = generated_text[len(input_text):].strip()
-            else:
-                result = generated_text.strip()
+            generated_ids = outputs[0][input_length:]
+            result = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+            print(result)
+            result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL)
 
             logger.info(f"Local inference completed in {inference_time:.2f}s for style {style_id}")
-            return result
+            return result.strip()
 
         except Exception as e:
             logger.error(f"Local model inference failed: {e}")

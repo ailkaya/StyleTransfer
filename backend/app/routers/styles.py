@@ -231,130 +231,92 @@ async def delete_style(
     style_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a style and associated local files."""
     logger.info(f"Deleting style: {style_id}")
 
-    result = await db.execute(
-        select(Style).where(Style.id == style_id)
-    )
-    style = result.scalar_one_or_none()
-
-    if not style:
-        logger.warning(f"Style not found for deletion: {style_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Style with id '{style_id}' not found"
-        )
-
-    logger.info(f"Style status: {style.status}, name: {style.name}")
-
-    # Check if style is currently training or has active tasks
+    import os
+    import shutil
     from ..models import Task
 
-    # Check for any active tasks (PENDING or PROCESSING)
-    active_tasks_result = await db.execute(
-        select(Task).where(
+    # ---- 1. 获取 style ----
+    style = await db.scalar(
+        select(Style).where(Style.id == style_id)
+    )
+
+    if not style:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Style '{style_id}' not found"
+        )
+
+    # ---- 2. 检查 active tasks（只查 count，避免加载全部对象）----
+    active_count = await db.scalar(
+        select(func.count())
+        .select_from(Task)
+        .where(
             Task.style_id == style_id,
             Task.status.in_(["PENDING", "PROCESSING"])
         )
     )
-    active_tasks = active_tasks_result.scalars().all()
 
-    if active_tasks:
-        task_statuses = [t.status for t in active_tasks]
-        logger.warning(
-            f"Cannot delete style {style_id}: has {len(active_tasks)} active tasks "
-            f"with statuses: {task_statuses}"
-        )
+    if active_count > 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Cannot delete style with active training tasks. "
-                   f"Found {len(active_tasks)} task(s) with status: {', '.join(set(task_statuses))}"
+            status_code=422,
+            detail=f"Cannot delete style: {active_count} active tasks exist"
         )
 
-    # Also check style status as a safeguard
-    if style.status == "training":
-        logger.warning(f"Style {style_id} has 'training' status but no active tasks found")
-        # Reset status to allow deletion or block it
-        logger.info(f"Resetting style {style_id} status from 'training' to 'pending'")
-        style.status = "pending"
-
-    # Collect files to delete before deleting database records
-    import os
-    import shutil
-    files_to_delete = []
-    dirs_to_delete = []
-
-    # 1. Adapter path from style
-    if style.adapter_path:
-        adapter_path = style.adapter_path
-        if os.path.exists(adapter_path):
-            files_to_delete.append(adapter_path)
-            logger.info(f"Will delete adapter: {adapter_path}")
-
-    # 2. Get all tasks for this style to find training data paths
-    tasks_result = await db.execute(
+    # ---- 3. 获取所有 tasks（一次查询）----
+    tasks = (await db.scalars(
         select(Task).where(Task.style_id == style_id)
-    )
-    tasks = tasks_result.scalars().all()
+    )).all()
+
+    # ---- 4. 收集需要删除的路径（用 set 去重）----
+    file_paths: set[str] = set()
+    dir_paths: set[str] = set()
+
+    if style.adapter_path:
+        file_paths.add(style.adapter_path)
 
     for task in tasks:
-        # Training data path
-        if task.training_data_path and os.path.exists(task.training_data_path):
-            dirs_to_delete.append(task.training_data_path)
-            logger.info(f"Will delete training data: {task.training_data_path}")
+        if task.training_data_path:
+            dir_paths.add(task.training_data_path)
 
-        # Result path (adapter files from tasks)
-        if task.result_path and task.result_path != style.adapter_path:
-            if os.path.exists(task.result_path):
-                files_to_delete.append(task.result_path)
-                logger.info(f"Will delete task result: {task.result_path}")
-
-    # Delete the style (cascade will handle related messages and tasks in DB)
+    # ---- 5. 先删除 DB（事务保证一致性）----
     await db.delete(style)
     await db.commit()
 
-    # Delete local files after successful DB deletion
-    deleted_files = []
-    deleted_dirs = []
-    failed_deletions = []
+    # ---- 6. 删除文件（DB 成功后执行）----
+    deleted = []
+    failed = []
 
-    # Delete files
-    for file_path in files_to_delete:
+    def safe_delete(path: str):
         try:
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-                deleted_files.append(file_path)
-                logger.info(f"Deleted file: {file_path}")
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-                deleted_files.append(file_path)
-                logger.info(f"Deleted directory: {file_path}")
+            if os.path.isfile(path):
+                os.remove(path)
+                return True
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+                return True
         except Exception as e:
-            failed_deletions.append((file_path, str(e)))
-            logger.error(f"Failed to delete {file_path}: {e}")
+            logger.error(f"Delete failed: {path}, error: {e}")
+            failed.append({"path": path, "error": str(e)})
+        return False
 
-    # Delete directories
-    for dir_path in dirs_to_delete:
-        try:
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path)
-                deleted_dirs.append(dir_path)
-                logger.info(f"Deleted directory: {dir_path}")
-        except Exception as e:
-            failed_deletions.append((dir_path, str(e)))
-            logger.error(f"Failed to delete {dir_path}: {e}")
+    for path in file_paths | dir_paths:
+        if os.path.exists(path):
+            if safe_delete(path):
+                deleted.append(path)
 
-    logger.info(f"Style deleted successfully: {style_id}")
-    logger.info(f"Deleted {len(deleted_files)} files/directories, {len(failed_deletions)} failed")
+    logger.info(
+        f"Style {style_id} deleted. files={len(deleted)}, failed={len(failed)}"
+    )
 
     return Response(
         code=200,
         message="Style deleted successfully",
         data={
             "id": style_id,
-            "deleted_files": deleted_files + deleted_dirs,
-            "failed_deletions": failed_deletions
+            "deleted_files": deleted,
+            "failed_deletions": failed
         },
         timestamp=datetime.utcnow(),
     )

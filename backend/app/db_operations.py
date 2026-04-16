@@ -246,6 +246,18 @@ class DatabaseOperations:
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    def task_exists(self, task_id: str) -> bool:
+        """Check if a task exists by ID."""
+        stmt = select(func.count()).select_from(Task).where(Task.id == task_id)
+        result = self.session.execute(stmt)
+        return result.scalar() > 0
+
+    async def task_exists_async(self, task_id: str) -> bool:
+        """Check if a task exists by ID (async)."""
+        stmt = select(func.count()).select_from(Task).where(Task.id == task_id)
+        result = await self.session.execute(stmt)
+        return result.scalar() > 0
+
     async def get_task_async(self, task_id: str) -> Optional[Task]:
         """Get task by ID (async)."""
         stmt = select(Task).where(Task.id == task_id)
@@ -274,9 +286,12 @@ class DatabaseOperations:
         result = self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_latest_task_by_style_async(self, style_id: str) -> Optional[Task]:
+    async def get_latest_task_by_style_async(self, style_id: str, status: str = None) -> Optional[Task]:
         """Get the most recent task for a style (async)."""
-        stmt = select(Task).where(Task.style_id == style_id).order_by(Task.created_at.desc()).limit(1)
+        stmt = select(Task).where(Task.style_id == style_id)
+        if status:
+            stmt = stmt.where(Task.status == status)
+        stmt = stmt.order_by(Task.created_at.desc()).limit(1)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -385,19 +400,13 @@ class DatabaseOperations:
                 await self.session.rollback()
             return False
 
-    def update_task_result(self, task_id: str, result_path: Optional[str] = None,
-                          error: Optional[str] = None) -> bool:
+    def update_task_result(self, task_id: str, error: Optional[str] = None) -> bool:
         """Update task result after completion."""
         try:
             task = self.get_task(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found when updating result")
                 return False
-
-            if result_path:
-                task.result_path = result_path
-                task.status = "COMPLETED"
-                task.progress = 100
 
             if error:
                 task.error_message = error
@@ -416,19 +425,13 @@ class DatabaseOperations:
                 self.session.rollback()
             return False
 
-    async def update_task_result_async(self, task_id: str, result_path: Optional[str] = None,
-                                       error: Optional[str] = None) -> bool:
+    async def update_task_result_async(self, task_id: str, error: Optional[str] = None) -> bool:
         """Update task result after completion (async)."""
         try:
             task = await self.get_task_async(task_id)
             if not task:
                 logger.error(f"Task {task_id} not found when updating result")
                 return False
-
-            if result_path:
-                task.result_path = result_path
-                task.status = "COMPLETED"
-                task.progress = 100
 
             if error:
                 task.error_message = error
@@ -829,7 +832,6 @@ class DatabaseOperations:
             # Update task
             task.status = "COMPLETED"
             task.progress = 100
-            task.result_path = adapter_path
             task.completed_at = datetime.utcnow()
 
             if self._owns_session:
@@ -864,7 +866,6 @@ class DatabaseOperations:
             # Update task
             task.status = "COMPLETED"
             task.progress = 100
-            task.result_path = adapter_path
             task.completed_at = datetime.utcnow()
 
             if self._owns_session:

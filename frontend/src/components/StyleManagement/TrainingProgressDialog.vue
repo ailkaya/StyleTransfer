@@ -183,7 +183,7 @@ const lastUpdateTime = ref('--:--:--')
 const pollInterval = ref(null)
 const currentEvalStep = ref(0)
 
-const POLLING_INTERVAL = 3000 // 3 seconds
+const POLLING_INTERVAL = 10000 // 10 seconds
 
 const evalSteps = ['准备数据', '生成样本', '计算指标', '生成报告']
 

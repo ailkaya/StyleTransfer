@@ -34,7 +34,6 @@ class TaskInDB(BaseModel):
     progress: int
     config: Optional[Dict[str, Any]] = None
     logs: Optional[str] = None
-    result_path: Optional[str] = None
     error_message: Optional[str] = None
     current_epoch: Optional[int] = None
     total_epochs: Optional[int] = None

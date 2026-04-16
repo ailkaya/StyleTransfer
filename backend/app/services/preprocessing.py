@@ -174,6 +174,7 @@ class DataPreprocessor:
                 - style_name: 风格名称（用于生成system_prompt）
                 - style_description: 风格描述（用于生成system_prompt）
         """
+        logger.info(f"[DataPreprocessor] style config: {style_config}")
         self.style_config = style_config or {}
         self.style_tag = self.style_config.get('target_style', '<自定义风格>')
         self.system_prompt = self._generate_system_prompt()
@@ -184,12 +185,9 @@ class DataPreprocessor:
         if 'system_prompt' in self.style_config:
             return self.style_config['system_prompt']
 
-        style_name = self.style_config.get('style_name', '自定义')
-        style_desc = self.style_config.get('style_description', '')
+        # style_name = self.style_config.get('style_name', '自定义')
 
-        if style_desc:
-            return f"你是{style_name}风格的文章生成助手。{style_desc}"
-        return f"你是{style_name}风格的文章生成助手，擅长模仿该风格的写作特点。"
+        return f"你是{self.style_tag}的文章生成助手，擅长模仿该风格的写作特点。"
 
     def _detect_language(self, text: str) -> str:
         """
@@ -476,7 +474,7 @@ class DataPreprocessor:
 
         for i, chunk in enumerate(chunks):
             # 数据增强：随机截断
-            if random.random() < 0.3:
+            if random.random() < 0.15:
                 chunk.content = chunk.content[:int(len(chunk.content)*0.7)]
 
             # 类型1：续写任务（如果有下一个块）

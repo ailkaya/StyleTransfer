@@ -381,6 +381,7 @@ async def generate_test_samples(
                 requirement="生成一段自然的、多样化的文本内容",
                 target_style="标准",
                 style_id=style_id,
+                use_api=True,
             )
             samples.append(response.strip())
         except Exception as e:

@@ -131,10 +131,10 @@ async def create_message(
             detail=f"LLM service not configured: {str(e)}"
         )
     except RuntimeError as e:
-        logger.error(f"LLM API call failed: {e}")
+        logger.error(f"Generate response failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM API call failed: {str(e)}"
+            detail=f"Generate response failed: {str(e)}"
         )
 
     # Save user message

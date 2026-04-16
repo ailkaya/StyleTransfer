@@ -62,6 +62,10 @@ def train_style_model(
     # Initialize database operations
     db = DatabaseOperations()
 
+    if not db.task_exists(task_id=task_id):
+        logger.warning(f"Task {task_id} not found, task terminate")
+        return
+
     # Update style status to preprocessing
     db.update_style_status(style_id, "preprocessing", None)
     db.update_task_status(task_id, "PREPROCESSING")
@@ -78,6 +82,7 @@ def train_style_model(
             }
     except Exception as e:
         logger.warning(f"Failed to get style config: {e}")
+        return
 
     try:
         # Preprocess training text using DataPreprocessor
@@ -125,13 +130,15 @@ def train_style_model(
         # Save processed data for training (optional, for debugging)
         output_dir = f"./training_data/{task_id}"
         os.makedirs(output_dir, exist_ok=True)
-        preprocessor.save_to_jsonl(preprocessed['train_data'], f"{output_dir}/train.jsonl")
-        preprocessor.save_to_jsonl(preprocessed['val_data'], f"{output_dir}/val.jsonl")
-        with open(f"{output_dir}/original.txt", 'w', encoding='utf-8') as f:
+        preprocessor.save_to_jsonl(preprocessed['train_data'], os.path.join(output_dir, "train.jsonl"))
+        preprocessor.save_to_jsonl(preprocessed['val_data'], os.path.join(output_dir, "val.jsonl"))
+        with open(os.path.join(output_dir, "original.txt"), 'w', encoding='utf-8') as f:
             f.write(training_text)
-        with open(f"{output_dir}/metadata.json", 'w', encoding='utf-8') as f:
+        with open(os.path.join(output_dir, "metadata.json"), 'w', encoding='utf-8') as f:
             json.dump(preprocessed['metadata'], f, ensure_ascii=False, indent=2)
         logger.info(f"  - Saved training data to: {output_dir}")
+
+        # return
 
         # Save training data path to database
         try:
@@ -182,6 +189,9 @@ def train_style_model(
             on_progress=on_progress,
         )
         logger.info("Training completed")
+
+        # Update adapter path in styles table
+        db.update_style_status(style_id, "processing", adapter_path)
 
         # Step 3: Verify adapter path
         logger.info(f"Step 3: Adapter saved to: {adapter_path}")
