@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Task, Style, AsyncSessionLocal
 from ..db_operations import DatabaseOperations
+from .preprocessing import TASK_TRANSFER
 from ..utils import get_logger
 
 logger = get_logger(__name__)
@@ -414,6 +415,7 @@ async def generate_transferred_texts(
                 requirement=f"转换为{target_style}风格",
                 target_style=target_style,
                 style_id=style_id,
+                task_type=TASK_TRANSFER,
             )
             transferred.append(result.strip())
         except Exception as e:

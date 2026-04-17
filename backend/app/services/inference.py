@@ -166,17 +166,31 @@ class InferenceService:
             api_key=api_key,
         )
 
+    def _generate_system_prompt(self, style_tag: str) -> str:
+        """根据风格配置生成系统提示词"""
+        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。"
+
     def _build_prompt(
         self,
         original_text: str,
         requirement: str,
         target_style: str,
+        task_type: str,
     ) -> str:
         """Build the prompt for style transfer."""
-        prompt = f"""
-用户输入：{requirement}
+        prompt = f"""<|system|>
+{self._generate_system_prompt(style_tag=target_style)}
 
-附带的文本：
+<|style_tag|>
+{target_style}
+
+<|task|>
+{task_type}
+
+<|instruction|>
+{requirement}
+
+<|input|>
 {original_text}
 """
         return prompt
@@ -353,6 +367,7 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
+        task_type: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
         use_api: bool = False,
@@ -370,6 +385,7 @@ class InferenceService:
             original_text=original_text,
             requirement=requirement,
             target_style=target_style,
+            task_type=task_type,
             history=history,
             style_id=style_id,
         )
@@ -379,6 +395,7 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
+        task_type: str = "",
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
     ) -> str:
@@ -428,12 +445,7 @@ class InferenceService:
             # Add system message
             messages.append({
                 "role": "system",
-                "content": f"""
-你是一个AI助手，请请开启深度思考模式，分析后再根据用户需求进行回答。
-
-必须严格遵守：
-- 输出必须是“{target_style}”风格
-"""
+                "content": self._generate_system_prompt(style_tag=target_style)
             })
             
             # Add history if provided
@@ -445,19 +457,16 @@ class InferenceService:
                     })
             
             # Add user prompt
-            prompt = self._build_prompt(original_text, requirement, target_style)
+            prompt = self._build_prompt(original_text, requirement, target_style, task_type)
             messages.append({
                 "role": "user",
                 "content": prompt,
             })
-            # print(messages)
-            # print(type(tokenizer))
-            # print(type(tokenizer.apply_chat_template))
+
             # Format messages into a single string for generation
             # Using chat template if available
             if hasattr(tokenizer, 'apply_chat_template'):
                 input_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                # print(type(input_text))
             else:
                 # Fallback to simple concatenation
                 input_text = f"{messages[0]['content']}\n\n{messages[1]['content']}"
@@ -498,7 +507,7 @@ class InferenceService:
             generated_ids = outputs[0][input_length:]
             result = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
-            print(result)
+            # print(result)
             result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL)
 
             logger.info(f"Local inference completed in {inference_time:.2f}s for style {style_id}")
@@ -595,6 +604,29 @@ class InferenceService:
             return True
         except Exception:
             return False
+
+    async def call_llm_raw(self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.7, max_tokens: int = 2048) -> str:
+        """通用 LLM 调用方法，供预处理等模块使用。"""
+        self._ensure_configured()
+        if not self.client:
+            raise ValueError("LLM client not configured")
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"LLM raw call failed: {e}")
+            raise
 
     async def call_llm_for_validation(self, prompt: str) -> str:
         """调用 LLM 进行验证类任务（如判断 comment 语义有效性）。"""

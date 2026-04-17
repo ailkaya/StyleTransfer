@@ -1,7 +1,9 @@
 """Text preprocessing service for training data preparation."""
 
+import os
 import re
 import json
+import hashlib
 import random
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Tuple, Optional
@@ -10,137 +12,6 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
-class PreprocessingService:
-    """Service for preprocessing training text data."""
-
-    # Approximate tokens per character (rough estimate for CJK + English)
-    CHARS_PER_TOKEN = 2.0
-
-    def __init__(self):
-        self.default_chunk_size = 512
-        self.default_overlap = 128
-
-    def estimate_tokens(self, text: str) -> int:
-        """Estimate token count for text."""
-        return int(len(text) / self.CHARS_PER_TOKEN)
-
-    def chunk_text(
-        self,
-        text: str,
-        chunk_size: int = None,
-        overlap: int = None,
-    ) -> List[str]:
-        """
-        Split text into overlapping chunks.
-
-        Args:
-            text: Input text to chunk
-            chunk_size: Target chunk size in tokens (default: 512)
-            overlap: Overlap between chunks in tokens (default: 128)
-
-        Returns:
-            List of text chunks
-        """
-        chunk_size = chunk_size or self.default_chunk_size
-        overlap = overlap or self.default_overlap
-
-        # Convert token counts to character counts
-        chunk_chars = int(chunk_size * self.CHARS_PER_TOKEN)
-        overlap_chars = int(overlap * self.CHARS_PER_TOKEN)
-
-        chunks = []
-        start = 0
-        text_len = len(text)
-
-        while start < text_len:
-            # Calculate end position
-            end = min(start + chunk_chars, text_len)
-
-            # Try to break at a sentence boundary
-            if end < text_len:
-                # Look for sentence endings (. ! ?)
-                search_end = min(end + 50, text_len)
-                search_text = text[end:search_end]
-                sentence_end = re.search(r'[.!?。！？]+\s*', search_text)
-                if sentence_end:
-                    end += sentence_end.end()
-
-            # Extract chunk
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-
-            # Move to next chunk with overlap
-            start = end - overlap_chars if end < text_len else text_len
-
-        return chunks
-
-    def clean_text(self, text: str) -> str:
-        """
-        Basic text cleaning.
-
-        TODO v0.2+: Add more sophisticated cleaning
-        - Remove special characters
-        - Normalize whitespace
-        - Fix encoding issues
-        """
-        # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
-        # Remove control characters
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-        return text.strip()
-
-    def preprocess_training_text(
-        self,
-        text: str,
-        chunk_size: int = None,
-        overlap: int = None,
-    ) -> dict:
-        """
-        Full preprocessing pipeline for training text.
-
-        Args:
-            text: Raw input text
-            chunk_size: Target chunk size in tokens
-            overlap: Overlap between chunks in tokens
-
-        Returns:
-            Dictionary with:
-                - cleaned_text: Cleaned full text
-                - chunks: List of text chunks
-                - chunk_count: Number of chunks
-                - estimated_tokens: Estimated total tokens
-        """
-        # Clean text
-        cleaned = self.clean_text(text)
-
-        # Chunk text
-        chunks = self.chunk_text(cleaned, chunk_size, overlap)
-
-        return {
-            "cleaned_text": cleaned,
-            "chunks": chunks,
-            "chunk_count": len(chunks),
-            "estimated_tokens": self.estimate_tokens(cleaned),
-        }
-
-    def format_for_training(self, chunks: List[str], target_style: str) -> List[dict]:
-        """
-        Format chunks for training.
-
-        TODO v0.2+: Format as instruction-following dataset for QLoRA
-        """
-        formatted = []
-        for chunk in chunks:
-            formatted.append({
-                "text": chunk,
-                "target_style": target_style,
-                # v0.2+: Add instruction templates
-            })
-        return formatted
-
-
-# ==================== Data Preprocessor (New Implementation) ====================
 
 @dataclass
 class TextChunk:
@@ -148,46 +19,89 @@ class TextChunk:
     content: str
     start_pos: int
     end_pos: int
-    chunk_type: str  # 'narration', 'dialogue', 'description'
     source: str
 
+TASK_TRANSFER = "style_transfer"
+TASK_TRANSFER_REVERSE = "style_transfer_reverse"
+TASK_CONTINUATION = "continuation"
 
 class DataPreprocessor:
     """
-    数据预处理器 - 基于 docs/preprocess.md 设计
+    数据预处理器 - 基于 docs/preprocess-improve.md 设计
 
     支持功能：
     1. 纯中文/纯英文/中英文混合输入处理
-    2. 语义边界分块策略（方案C）
-    3. 训练样本构造（类型1续写任务、类型2风格模仿任务）
-    4. 自定义JSONL格式输出
+    2. 语义边界分块策略（用于续写任务）
+    3. 句子级拆分（用于风格转换任务）
+    4. 基于LLM的去风格、语义校验、风格残留检测
+    5. 训练样本构造（续写任务 + 风格转换任务）
+    6. 自定义JSONL格式输出
     """
 
-    def __init__(self, style_config: Optional[dict] = None):
-        """
-        初始化数据预处理器
-
-        Args:
-            style_config: 风格配置字典
-                - target_style: 目标风格标签，如 "<鲁迅风格>"
-                - system_prompt: 系统提示词
-                - style_name: 风格名称（用于生成system_prompt）
-                - style_description: 风格描述（用于生成system_prompt）
-        """
+    def __init__(self, style_config: Optional[dict] = None, cache_dir: str = "./cache/preprocess"):
         logger.info(f"[DataPreprocessor] style config: {style_config}")
         self.style_config = style_config or {}
-        self.style_tag = self.style_config.get('target_style', '<自定义风格>')
+        self.style_tag = self.style_config.get('target_style', '自定义风格')
         self.system_prompt = self._generate_system_prompt()
         self.chunks: List[TextChunk] = []
+        self.cache_dir = cache_dir
 
     def _generate_system_prompt(self) -> str:
         """根据风格配置生成系统提示词"""
         if 'system_prompt' in self.style_config:
             return self.style_config['system_prompt']
+        return f"你是<{self.style_tag}>的文章生成助手，擅长模仿该风格的写作特点。"
 
-        # style_name = self.style_config.get('style_name', '自定义')
+    def _get_cache_key(self, raw_text: str) -> str:
+        """基于 raw_text 和 style_tag 计算缓存 key"""
+        content = f"{self.style_tag}:{raw_text}"
+        return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-        return f"你是{self.style_tag}的文章生成助手，擅长模仿该风格的写作特点。"
+    def _get_cache_path(self, raw_text: str) -> str:
+        key = self._get_cache_key(raw_text)
+        return os.path.join(self.cache_dir, key)
+
+    def _load_from_cache(self, raw_text: str) -> Optional[Dict]:
+        cache_path = self._get_cache_path(raw_text)
+        files = {
+            "train_data": "train.jsonl",
+            "val_data": "val.jsonl",
+            "metadata": "metadata.json",
+            "chunks": "chunks.json",
+            "samples": "samples.json",
+        }
+        result = {}
+        for field, filename in files.items():
+            filepath = os.path.join(cache_path, filename)
+            if not os.path.exists(filepath):
+                return None
+            with open(filepath, "r", encoding="utf-8") as f:
+                if filename.endswith(".jsonl"):
+                    result[field] = [json.loads(line) for line in f if line.strip()]
+                else:
+                    result[field] = json.load(f)
+        logger.info(f"Loaded preprocessing result from cache: {cache_path}")
+        return result
+
+    def _save_to_cache(self, raw_text: str, result: Dict):
+        cache_path = self._get_cache_path(raw_text)
+        os.makedirs(cache_path, exist_ok=True)
+        files = {
+            "train_data": "train.jsonl",
+            "val_data": "val.jsonl",
+            "metadata": "metadata.json",
+            "chunks": "chunks.json",
+            "samples": "samples.json",
+        }
+        for field, filename in files.items():
+            filepath = os.path.join(cache_path, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                if filename.endswith(".jsonl"):
+                    for item in result[field]:
+                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+                else:
+                    json.dump(result[field], f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved preprocessing result to cache: {cache_path}")
 
     def _detect_language(self, text: str) -> str:
         """
@@ -269,6 +183,58 @@ class DataPreprocessor:
 
         return text.strip()
 
+    def sentence_split(self, text: str) -> List[str]:
+        """
+        句子级文本拆分：按句子结束符切分，合并过短片段，对过长片段再切分
+        """
+        # 按句子结束符切分并保留标点
+        raw_parts = re.split(r'([。！？.!?]+)', text)
+        sentences = []
+        for i in range(0, len(raw_parts) - 1, 2):
+            sent = raw_parts[i] + raw_parts[i + 1]
+            sent = sent.strip()
+            if sent:
+                sentences.append(sent)
+        if len(raw_parts) % 2 == 1:
+            last = raw_parts[-1].strip()
+            if last:
+                sentences.append(last)
+
+        # 合并过短片段 (<15字)
+        merged = []
+        for s in sentences:
+            if not merged:
+                merged.append(s)
+            else:
+                if len(merged[-1]) < 15:
+                    merged[-1] += s
+                elif len(s) < 15:
+                    merged[-1] += s
+                else:
+                    merged.append(s)
+
+        # 对过长片段 (>120字) 按逗号/分号再切
+        final = []
+        for s in merged:
+            if len(s) > 120:
+                sub_parts = re.split(r'([，,；;])', s)
+                current = ""
+                for j in range(0, len(sub_parts) - 1, 2):
+                    chunk = sub_parts[j] + sub_parts[j + 1]
+                    if len(current) + len(chunk) > 120 and current:
+                        final.append(current)
+                        current = chunk
+                    else:
+                        current += chunk
+                if len(sub_parts) % 2 == 1:
+                    current += sub_parts[-1]
+                if current:
+                    final.append(current)
+            else:
+                final.append(s)
+
+        return [s.strip() for s in final if len(s.strip()) >= 10]
+
     def _find_semantic_boundaries(self, text: str) -> List[int]:
         """
         识别文本中的语义边界位置
@@ -341,31 +307,6 @@ class DataPreprocessor:
             # 最终回退：按目标长度硬切分
             return min(ideal_end, len(text))
 
-    def _classify_chunk(self, content: str) -> str:
-        """
-        分类文本块类型（用于后续多样化训练任务）
-
-        Returns:
-            'dialogue': 对话为主
-            'description': 描写为主
-            'narration': 叙述为主
-        """
-        # 对话标记
-        dialogue_marks = ['「', '『', '"', '"', ''', ''', '"', "'"]
-        dialogue_count = sum(content.count(m) for m in dialogue_marks)
-
-        # 描写关键词（中文和英文）
-        desc_keywords = ['描写', '景象', '看见', '只见', 'scene', 'describe',
-                        'looked', 'saw', 'appearance', 'landscape']
-        desc_count = sum(content.count(w) for w in desc_keywords)
-
-        if dialogue_count >= 4:
-            return 'dialogue'
-        elif desc_count >= 2:
-            return 'description'
-        else:
-            return 'narration'
-
     def semantic_chunking(self, text: str, target_length: int = 1024,
                          overlap: int = 256) -> List[TextChunk]:
         """
@@ -396,12 +337,10 @@ class DataPreprocessor:
 
             content = text[start:end].strip()
             if len(content) > 50:  # 过滤过短片段
-                chunk_type = self._classify_chunk(content)
                 chunks.append(TextChunk(
                     content=content,
                     start_pos=start,
                     end_pos=end,
-                    chunk_type=chunk_type,
                     source=f"chunk_{chunk_id}"
                 ))
                 chunk_id += 1
@@ -412,88 +351,178 @@ class DataPreprocessor:
         self.chunks = chunks
         return chunks
 
-    def _create_continuation_task(self, current, next_chunk):
+    def generate_continuation_samples(self, chunks: List[TextChunk]) -> List[Dict]:
         """
-        改进：
-        - 只给“前文”
-        - 不包含当前chunk后半（避免泄露）
-        """
-
-        prompt = current.content.strip()
-
-        # 只用 next chunk 作为答案（关键）
-        completion = next_chunk.content[:800].strip()
-
-        return {
-            "system": self.system_prompt,
-            "instruction": (
-                f"{self.style_tag}\n"
-                "请根据以下文本继续写作，保持语气、节奏和风格一致："
-            ),
-            "input": prompt,
-            "output": completion,
-            "task_type": "continuation",
-        }
-
-    def _create_style_imitation_task(self, chunk):
-        """
-        改进：
-        - 输入是“摘要/语义提示”
-        - 输出是原文
-        """
-
-        summary = self._extract_semantic_hint(chunk.content)
-
-        return {
-            "system": self.system_prompt,
-            "instruction": (
-                f"{self.style_tag}\n"
-                "根据以下要点，用指定风格进行完整描写："
-            ),
-            "input": summary,
-            "output": chunk.content,
-            "task_type": "style_imitation",
-        }
-    
-    def _extract_semantic_hint(self, text):
-        """
-        简单实现（可升级成LLM摘要）
-        """
-        sentences = text.split("。")[:3]
-        return "；".join(sentences)
-
-    def generate_training_samples(self, chunks: List[TextChunk]) -> List[Dict]:
-        """
-        为每个分块生成训练样本
-
-        生成类型：
-        - 类型1：续写任务（如果有下文）
-        - 类型2：风格模仿任务
+        生成续写任务样本
         """
         samples = []
-
         for i, chunk in enumerate(chunks):
-            # 数据增强：随机截断
-            if random.random() < 0.15:
-                chunk.content = chunk.content[:int(len(chunk.content)*0.7)]
-
-            # 类型1：续写任务（如果有下一个块）
             if i < len(chunks) - 1:
-                sample = self._create_continuation_task(chunk, chunks[i + 1])
-                samples.append(sample)
+                prompt = chunk.content.strip()
+                completion = chunks[i + 1].content.strip()
+                samples.append({
+                    # "system": self.system_prompt,
+                    "instruction": "请续写以下文本，并保持语言风格、语气、节奏和风格一致",
+                    "input": prompt,
+                    "output": completion,
+                    "task_type": TASK_CONTINUATION,
+                })
+        return samples
 
-            # 类型2：风格模仿任务
-            sample = self._create_style_imitation_task(chunk)
-            samples.append(sample)
+    async def _neutralize_text(self, text: str, inference_service) -> str:
+        """LLM 去风格生成"""
+        prompt = f"""请将以下文本改写为"中性客观表达"，要求：
 
+- 保留原始语义，不改变事实
+- 去除文学性表达（如比喻、讽刺、情绪渲染）
+- 使用简单、直接、现代的语言
+- 不要扩写或缩写内容
+- 不要解释
+
+文本：
+{text}
+
+输出："""
+        try:
+            response = await inference_service.call_llm_raw(
+                prompt=prompt,
+                system_prompt="你是一个文本改写助手，只输出改写后的文本，不要解释。",
+                temperature=0.3,
+                max_tokens=2048
+            )
+            return response.strip()
+        except Exception as e:
+            logger.error(f"Neutralization failed: {e}")
+            return ""
+
+    async def _check_semantic_alignment(self, original: str, neutral: str, inference_service) -> bool:
+        """语义一致性校验"""
+        prompt = f"""判断以下两句话是否表达相同的含义（忽略风格差异）：
+
+A: {original}
+B: {neutral}
+
+如果语义一致，回答：是
+否则回答：否"""
+        try:
+            response = await inference_service.call_llm_raw(
+                prompt=prompt,
+                system_prompt="你是一个文本分析助手，只回答是或否。",
+                temperature=0.1,
+                max_tokens=10
+            )
+            return "是" in response.strip()
+        except Exception as e:
+            logger.error(f"Semantic alignment check failed: {e}")
+            return False
+
+    async def _check_style_leakage(self, neutral_text: str, inference_service) -> bool:
+        """风格残留检测"""
+        prompt = f"""判断以下文本是否仍然具有文学风格（如鲁迅风格）：
+
+文本：
+{neutral_text}
+
+如果是中性表达，回答：中性
+如果仍有明显文学风格，回答：有风格"""
+        try:
+            response = await inference_service.call_llm_raw(
+                prompt=prompt,
+                system_prompt="你是一个文本风格分析助手，只回答中性或有风格。",
+                temperature=0.1,
+                max_tokens=10
+            )
+            return "中性" in response.strip()
+        except Exception as e:
+            logger.error(f"Style leakage check failed: {e}")
+            return False
+
+    def _quality_filter(self, original: str, neutral: str) -> bool:
+        """数据质量控制"""
+        if not original or not neutral:
+            return False
+
+        ratio = len(neutral) / len(original)
+        if ratio < 0.7 or ratio > 1.5:
+            return False
+
+        # 重复检测：连续重复8次以上
+        if re.search(r'(.)\1{7,}', neutral):
+            return False
+
+        # 关键词覆盖：原文中2-6字的中文词至少保留30%
+        keywords = set(re.findall(r'[\u4e00-\u9fa5]{2,6}', original))
+        if keywords:
+            preserved = sum(1 for k in keywords if k in neutral)
+            if preserved / len(keywords) < 0.3:
+                return False
+
+        return True
+
+    async def generate_style_transfer_samples(self, sentences: List[str], inference_service) -> List[Dict]:
+        """
+        生成风格转换样本（基于LLM的多阶段过滤）
+        """
+        style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
+        samples = []
+
+        for original in sentences:
+            # 去风格
+            neutral = await self._neutralize_text(original, inference_service)
+            if not neutral:
+                logger.info(f"  -> Neutralization returned empty, skip")
+                continue
+
+            # 语义校验
+            aligned = await self._check_semantic_alignment(original, neutral, inference_service)
+            if not aligned:
+                logger.info(f"  -> Semantic alignment failed, dropping")
+                continue
+
+            # 风格残留检测
+            no_leak = await self._check_style_leakage(neutral, inference_service)
+            if not no_leak:
+                logger.info(f"  -> Style leakage detected, dropping")
+                continue
+
+            # 质量过滤
+            if not self._quality_filter(original, neutral):
+                logger.info(f"  -> Quality filter failed, dropping")
+                continue
+
+            # 构造正向样本
+            samples.append({
+                # "system": self.system_prompt,
+                "instruction": f"请将文本改写为{style_name}风格，保持原意，不扩写",
+                "input": neutral,
+                "output": original,
+                "task_type": TASK_TRANSFER,
+            })
+
+            # 构造反向样本（30%概率）
+            if random.random() < 0.3:
+                samples.append({
+                    # "system": "你是一个文本风格转换模型。",
+                    "instruction": "请将文本改写为中性表达，保持原意，不扩写",
+                    "input": original,
+                    "output": neutral,
+                    "task_type": TASK_TRANSFER_REVERSE,
+                })
+
+        logger.info(f"Style transfer sample generation complete: {len(samples)} samples kept")
         return samples
 
     def to_sft_format(self, samples: List[Dict]) -> List[Dict]:
         data = []
-
-        for i, s in enumerate(samples):
+        for s in samples:
             text = f"""<|system|>
-{s["system"]}
+{self.system_prompt}
+
+<|style_tag|>
+{self.style_tag}
+
+<|task|>
+{s["task_type"]}
 
 <|instruction|>
 {s["instruction"]}
@@ -503,25 +532,20 @@ class DataPreprocessor:
 
 <|response|>
 {s["output"]}"""
-
             data.append({
                 "text": text,
-                "task_type": s["task_type"]
+                "style_tag": self.style_tag,
+                "task_type": s["task_type"],
+                "system": s["system"],
+                "instruction": s["instruction"],
+                "input": s["input"],
+                "output": s["output"],
             })
-
         return data
 
     def _extract_output_from_item(self, item: Dict) -> Optional[str]:
         """从 formatted_data 中提取 output/response 内容。"""
-        text = item.get("text", "")
-        response_marker = "<|response|>\n"
-        if response_marker in text:
-            return text.split(response_marker, 1)[1]
-        # 兼容旧格式 conversations
-        try:
-            return item["conversations"][1]["value"]
-        except (KeyError, IndexError):
-            return None
+        return item.get("output") or None
 
     def validate_and_split(self, data: List[Dict],
                           train_ratio: float = 0.95) -> Tuple[List[Dict], List[Dict], Dict]:
@@ -540,7 +564,7 @@ class DataPreprocessor:
             output_len = len(output)
 
             # 过滤过长或过短
-            if 50 < output_len < 3000:
+            if 15 < output_len < 3000:
                 valid_data.append(item)
 
         # 统计信息
@@ -550,9 +574,9 @@ class DataPreprocessor:
             if output is not None:
                 lengths.append(len(output))
 
-        short_count = sum(1 for l in lengths if l < 500)
-        medium_count = sum(1 for l in lengths if 500 <= l < 1500)
-        long_count = sum(1 for l in lengths if l >= 1500)
+        short_count = sum(1 for l in lengths if l < 100)
+        medium_count = sum(1 for l in lengths if 100 <= l < 500)
+        long_count = sum(1 for l in lengths if l >= 500)
 
         metadata = {
             "total_samples": len(data),
@@ -573,15 +597,17 @@ class DataPreprocessor:
 
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
-    def process(self, raw_text: str, target_length: int = 1024,
-                overlap: int = 256, train_ratio: float = 0.95) -> Dict:
+    async def process(self, raw_text: str, inference_service, target_length: int = 1024,
+                      overlap: int = 256, train_ratio: float = 0.95) -> Dict:
         """
         完整预处理流程
 
-        Pipeline: 清洗 → 语义分块 → 生成样本 → 格式转换 → 验证划分
+        Pipeline: 缓存检查 → 清洗 → 语义分块（续写） → 句子拆分（风格转换） →
+                  生成续写样本 → LLM生成风格转换样本 → 格式转换 → 验证划分 → 缓存写入
 
         Args:
             raw_text: 原始输入文本
+            inference_service: 推理服务实例（用于调用LLM）
             target_length: 目标分块长度
             overlap: 重叠窗口大小
             train_ratio: 训练集比例
@@ -589,39 +615,59 @@ class DataPreprocessor:
         Returns:
             包含train_data, val_data, metadata的字典
         """
+        # Step 0: 检查缓存
+        cached = self._load_from_cache(raw_text)
+        if cached is not None:
+            return cached
+
         # Step 1: 清洗文本
-        clean_text = self.clean_text(raw_text)
+        cleaned = self.clean_text(raw_text)
 
-        # Step 2: 语义分块
-        chunks = self.semantic_chunking(clean_text, target_length, overlap)
+        # Step 2: 语义分块（用于续写任务）
+        chunks = self.semantic_chunking(cleaned, target_length, overlap)
 
-        # Step 3: 生成训练样本
-        samples = self.generate_training_samples(chunks)
+        # Step 3: 句子拆分（用于风格转换任务）
+        sentences = self.sentence_split(cleaned)
 
-        # Step 4: 转换为自定义JSONL格式
-        formatted_data = self.to_sft_format(samples)
+        # Step 4: 生成续写样本（保持现状）
+        continuation_samples = self.generate_continuation_samples(chunks)
 
-        # Step 5: 验证和划分
+        # Step 5: 生成风格转换样本（LLM增强）
+        style_samples = await self.generate_style_transfer_samples(sentences, inference_service)
+
+        all_samples = continuation_samples + style_samples
+
+        # Step 6: 转换为SFT格式
+        formatted_data = self.to_sft_format(all_samples)
+
+        # Step 7: 验证和划分
         train_data, val_data, metadata = self.validate_and_split(formatted_data, train_ratio)
 
         # 更新元数据
         metadata.update({
             "language": self._detect_language(raw_text),
             "original_length": len(raw_text),
-            "cleaned_length": len(clean_text),
+            "cleaned_length": len(cleaned),
             "chunk_count": len(chunks),
-            "sample_count": len(samples),
+            "sentence_count": len(sentences),
+            "continuation_sample_count": len(continuation_samples),
+            "style_sample_count": len(style_samples),
+            "sample_count": len(all_samples),
             "style_tag": self.style_tag,
             "system_prompt": self.system_prompt
         })
 
-        return {
+        result = {
             "train_data": train_data,
             "val_data": val_data,
             "metadata": metadata,
             "chunks": [asdict(c) for c in chunks],
-            "samples": samples
+            "samples": all_samples
         }
+
+        # Step 8: 写入缓存
+        self._save_to_cache(raw_text, result)
+        return result
 
     async def adjust_samples_by_comment(
         self,
@@ -702,19 +748,10 @@ class DataPreprocessor:
         inference_service
     ) -> Optional[Dict]:
         """使用 LLM 根据评论调整单个样本。"""
-        # 从对话格式中提取信息
-        conversations = sample.get('conversations', [])
         system = sample.get('system', '')
-        instruction = ''
-        input_text = ''
-        output = ''
-
-        if conversations and len(conversations) >= 2:
-            human_msg = conversations[0].get('value', '')
-            parts = human_msg.split('\n', 1)
-            instruction = parts[0]
-            input_text = parts[1] if len(parts) > 1 else ''
-            output = conversations[1].get('value', '')
+        instruction = sample.get('instruction', '')
+        input_text = sample.get('input', '')
+        output = sample.get('output', '')
 
         prompt = f"""请根据用户的改进要求，调整以下训练样本。
 
@@ -739,21 +776,32 @@ class DataPreprocessor:
         try:
             response = await inference_service.call_llm_for_adjustment(prompt)
             # 解析 JSON 响应
-            import json
             adjusted_raw = json.loads(response)
 
-            # 转换回对话格式
             adjusted = {
-                'id': sample.get('id', ''),
-                'system': adjusted_raw.get('system', system),
-                'conversations': [
-                    {'from': 'human', 'value': adjusted_raw.get('instruction', instruction) +
-                     ('\n' + adjusted_raw.get('input', input_text) if adjusted_raw.get('input', input_text) else '')},
-                    {'from': 'gpt', 'value': adjusted_raw.get('output', output)}
-                ],
                 'task_type': sample.get('task_type', 'general'),
+                'system': adjusted_raw.get('system', system),
+                'instruction': adjusted_raw.get('instruction', instruction),
+                'input': adjusted_raw.get('input', input_text),
+                'output': adjusted_raw.get('output', output),
                 'metadata': sample.get('metadata', {})
             }
+
+            adjusted['text'] = f"""<|system|>
+{adjusted['system']}
+
+<|task|>
+{adjusted['task_type']}
+
+<|instruction|>
+{adjusted['instruction']}
+
+<|input|>
+{adjusted['input']}
+
+<|response|>
+{adjusted['output']}"""
+
             adjusted['metadata']['adjusted_by_comment'] = True
             return adjusted
         except Exception as e:
@@ -765,7 +813,3 @@ class DataPreprocessor:
         with open(filepath, 'w', encoding='utf-8') as f:
             for item in data:
                 f.write(json.dumps(item, ensure_ascii=False) + '\n')
-
-
-# Global preprocessing service instance
-preprocessing_service = PreprocessingService()

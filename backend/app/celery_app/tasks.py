@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 
 from ..models import Task, Style, Evaluation
-from ..services import training_service, preprocessing_service, evaluation_service, get_inference_service, DataPreprocessor
+from ..services import training_service, evaluation_service, get_inference_service, DataPreprocessor
 from ..utils import get_logger
 from ..db_operations import DatabaseOperations
 
@@ -92,12 +92,14 @@ def train_style_model(
         preprocessor = DataPreprocessor(style_config=style_config)
 
         # Run full preprocessing pipeline
-        preprocessed = preprocessor.process(
+        inference_service = get_inference_service()
+        preprocessed = asyncio.run(preprocessor.process(
             raw_text=training_text,
+            inference_service=inference_service,
             target_length=config.get("chunk_size", 1024),
             overlap=config.get("chunk_overlap", 256),
             train_ratio=0.95
-        )
+        ))
 
         logger.info(f"Preprocessing complete:")
         logger.info(f"  - Language: {preprocessed['metadata']['language']}")
@@ -115,7 +117,6 @@ def train_style_model(
             if evaluation and evaluation.comment:
                 logger.info(f"Found comment for parent style {parent_style_id}: {evaluation.comment[:50]}...")
                 try:
-                    inference_service = get_inference_service()
                     adjusted_train_data = asyncio.run(preprocessor.adjust_samples_by_comment(
                         preprocessed['train_data'], evaluation.comment, inference_service
                     ))

@@ -87,7 +87,7 @@ class TrainingService:
 
             # ===== 日志 =====
 
-            "logging_steps": 10,
+            "logging_steps": 8,
             # 每多少step记录一次日志（loss等）
             # 太小 → 日志频繁（影响速度）
             # 太大 → 监控不及时
@@ -123,7 +123,7 @@ class TrainingService:
             # "epoch" → 每个epoch评估
             # "steps" → 每N步评估（更细粒度，推荐）
 
-            "eval_steps": 50,
+            "eval_steps": 20,
             # 每多少step进行一次验证
             # 与 evaluation_strategy="steps" 配合使用
             # 用于监控val loss变化
@@ -370,8 +370,8 @@ class TrainingService:
 
             model = get_peft_model(model, lora_config)
 
-            training_text = clean_and_filter_dataset(training_text)
-            validation_text = clean_and_filter_dataset(validation_text or [])
+            # training_text = clean_and_filter_dataset(training_text)
+            # validation_text = clean_and_filter_dataset(validation_text or [])
 
             # ========= Dataset =========
             train_dataset = Dataset.from_list(training_text)
@@ -380,30 +380,31 @@ class TrainingService:
             # ========= tokenize + label mask =========
             def tokenize_fn(example):
                 text = example["text"]
-
-                # ===== 兜底保护 =====
-                if not isinstance(text, str):
-                    text = str(text)
-
+                
+                # 找到response开始的位置（根据你的模板设计）
+                response_start = text.find("<|response|>\n") + len("<|response|>\n")
+                
+                # tokenize prompt部分，计算长度
+                prompt_text = text[:response_start]
+                prompt_tokens = tokenizer(prompt_text, add_special_tokens=False)
+                prompt_len = len(prompt_tokens["input_ids"])
+                
+                # tokenize完整文本
                 tokenized = tokenizer(
                     text,
                     truncation=True,
                     max_length=train_config["max_length"],
                     padding="max_length",
                 )
-
+                
                 input_ids = tokenized["input_ids"]
-                # ===== 防止嵌套 =====
-                if len(input_ids) > 0 and isinstance(input_ids[0], list):
-                    raise ValueError(f"Nested input_ids detected: {input_ids}")
-
-                labels = list(input_ids)
-
-                # mask padding
-                for i, m in enumerate(tokenized["attention_mask"]):
-                    if m == 0:
-                        labels[i] = -100
-
+                labels = [-100] * len(input_ids)  # 先全部mask
+                
+                # 只保留response部分的labels
+                for i in range(prompt_len, len(input_ids)):
+                    if tokenized["attention_mask"][i] == 1:  # 非padding
+                        labels[i] = input_ids[i]
+                
                 return {
                     "input_ids": input_ids,
                     "attention_mask": tokenized["attention_mask"],

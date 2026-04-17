@@ -120,6 +120,7 @@ async def create_message(
             original_text=message_data.original_text,
             requirement=message_data.requirement,
             target_style=style.target_style,
+            task_type=message_data.task_type,
             history=message_data.history,
             style_id=style_id,
         )

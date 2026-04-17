@@ -160,7 +160,7 @@
                 />
               </div>
 
-              <!-- Requirement Input -->
+              <!-- Task Type Selector -->
               <div class="input-column">
                 <div class="field-header">
                   <span class="field-label">
@@ -168,14 +168,12 @@
                     需求
                   </span>
                 </div>
-                <el-input
-                  v-model="requirement"
-                  type="textarea"
-                  :rows="3"
-                  :placeholder="`转化风格或续写...`"
-                  resize="none"
-                  class="custom-textarea"
-                />
+                <div class="task-type-selector">
+                  <el-radio-group v-model="taskType" size="large">
+                    <el-radio-button label="风格转换" value="style_transfer" />
+                    <el-radio-button label="续写" value="continuation" />
+                  </el-radio-group>
+                </div>
               </div>
             </div>
 
@@ -279,8 +277,13 @@ watch(() => styleStore.availableStyles.length, (newLength) => {
   }
 })
 const originalText = ref('')
-const requirement = ref('')
+const taskType = ref('style_transfer')
 const messagesContainer = ref(null)
+
+const taskTypeLabelMap = {
+  style_transfer: '风格转换',
+  continuation: '续写'
+}
 
 const currentStyle = computed(() =>
   styleStore.getStyleById(selectedStyleId.value)
@@ -288,7 +291,7 @@ const currentStyle = computed(() =>
 
 const canSend = computed(() =>
   selectedStyleId.value &&
-  requirement.value.trim() &&
+  taskType.value &&
   !messageStore.sending
 )
 
@@ -309,13 +312,13 @@ async function sendMessage() {
 
   const data = {
     original_text: originalText.value.trim(),
-    requirement: requirement.value.trim()
+    requirement: taskTypeLabelMap[taskType.value],
+    task_type: taskType.value
   }
 
   try {
     await messageStore.sendMessage(selectedStyleId.value, data)
     originalText.value = ''
-    requirement.value = ''
     nextTick(() => scrollToBottom())
   } catch (error) {
     ElMessage.error(error.message)
@@ -829,6 +832,25 @@ watch(() => messageStore.messages.length, () => {
 .custom-textarea :deep(.el-textarea__inner:focus) {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.task-type-selector {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.task-type-selector :deep(.el-radio-group) {
+  width: 100%;
+  display: flex;
+}
+
+.task-type-selector :deep(.el-radio-button) {
+  flex: 1;
+}
+
+.task-type-selector :deep(.el-radio-button__inner) {
+  width: 100%;
 }
 
 .input-footer {
