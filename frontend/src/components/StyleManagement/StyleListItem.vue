@@ -182,6 +182,10 @@ const formattedTime = computed(() => {
   background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
 }
 
+.list-icon.preprocessing {
+  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+}
+
 .list-icon.evaluating {
   background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
 }
@@ -229,6 +233,15 @@ const formattedTime = computed(() => {
 
 .list-status.pending {
   color: #64748b;
+}
+
+.list-status.preprocessing {
+  color: #0891b2;
+}
+
+.list-status.preprocessing .status-indicator {
+  background: #06b6d4;
+  box-shadow: 0 0 6px #06b6d4;
 }
 
 .list-status.evaluating {

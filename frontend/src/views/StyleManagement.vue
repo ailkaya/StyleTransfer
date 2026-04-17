@@ -53,11 +53,11 @@
           评估中
         </button>
         <button
-          :class="['status-btn preprocessing', { active: statusFilter === 'PENDING' }]"
-          @click="statusFilter = 'PENDING'"
+          :class="['status-btn preprocessing', { active: statusFilter === 'PREPROCESSING' }]"
+          @click="statusFilter = 'PREPROCESSING'"
         >
           <span class="status-dot"></span>
-          等待中
+          数据处理中
         </button>
       </div>
 
@@ -255,7 +255,7 @@ const pageSize = ref(12)
 const editDialogVisible = ref(false)
 const saving = ref(false)
 const isSearchFocused = ref(false)
-const statusFilter = ref('') // '', 'COMPLETED', 'PROCESSING', 'EVALUATING', 'PENDING'
+const statusFilter = ref('') // '', 'COMPLETED', 'PROCESSING', 'EVALUATING', 'PREPROCESSING'
 
 const editForm = reactive({
   id: '',

@@ -21,6 +21,7 @@ class TextChunk:
     end_pos: int
     source: str
 
+TASK_GENERATE = "generate"
 TASK_TRANSFER = "style_transfer"
 TASK_TRANSFER_REVERSE = "style_transfer_reverse"
 TASK_CONTINUATION = "continuation"
@@ -201,27 +202,29 @@ class DataPreprocessor:
                 sentences.append(last)
 
         # 合并过短片段 (<15字)
+        sentences_min_length = 15
         merged = []
         for s in sentences:
             if not merged:
                 merged.append(s)
             else:
-                if len(merged[-1]) < 15:
+                if len(merged[-1]) < sentences_min_length:
                     merged[-1] += s
-                elif len(s) < 15:
+                elif len(s) < sentences_min_length:
                     merged[-1] += s
                 else:
                     merged.append(s)
 
-        # 对过长片段 (>120字) 按逗号/分号再切
+        # 对过长片段 (>150字) 按逗号/分号再切
+        sentences_max_length = 150
         final = []
         for s in merged:
-            if len(s) > 120:
+            if len(s) > sentences_max_length:
                 sub_parts = re.split(r'([，,；;])', s)
                 current = ""
                 for j in range(0, len(sub_parts) - 1, 2):
                     chunk = sub_parts[j] + sub_parts[j + 1]
-                    if len(current) + len(chunk) > 120 and current:
+                    if len(current) + len(chunk) > sentences_max_length and current:
                         final.append(current)
                         current = chunk
                     else:
@@ -474,21 +477,21 @@ B: {neutral}
                 continue
 
             # 语义校验
-            aligned = await self._check_semantic_alignment(original, neutral, inference_service)
-            if not aligned:
-                logger.info(f"  -> Semantic alignment failed, dropping")
-                continue
+            # aligned = await self._check_semantic_alignment(original, neutral, inference_service)
+            # if not aligned:
+            #     logger.info(f"  -> Semantic alignment failed, dropping")
+            #     continue
 
             # 风格残留检测
-            no_leak = await self._check_style_leakage(neutral, inference_service)
-            if not no_leak:
-                logger.info(f"  -> Style leakage detected, dropping")
-                continue
+            # no_leak = await self._check_style_leakage(neutral, inference_service)
+            # if not no_leak:
+            #     logger.info(f"  -> Style leakage detected, dropping")
+            #     continue
 
             # 质量过滤
-            if not self._quality_filter(original, neutral):
-                logger.info(f"  -> Quality filter failed, dropping")
-                continue
+            # if not self._quality_filter(original, neutral):
+            #     logger.info(f"  -> Quality filter failed, dropping")
+            #     continue
 
             # 构造正向样本
             samples.append({
@@ -536,7 +539,7 @@ B: {neutral}
                 "text": text,
                 "style_tag": self.style_tag,
                 "task_type": s["task_type"],
-                "system": s["system"],
+                "system": self.system_prompt,
                 "instruction": s["instruction"],
                 "input": s["input"],
                 "output": s["output"],
@@ -618,30 +621,41 @@ B: {neutral}
         # Step 0: 检查缓存
         cached = self._load_from_cache(raw_text)
         if cached is not None:
+            logger.info("[Preprocessing] Step 0 completed: loaded from cache")
             return cached
+        logger.info("[Preprocessing] Step 0 completed: no cache found, proceeding with processing")
 
         # Step 1: 清洗文本
         cleaned = self.clean_text(raw_text)
+        logger.info(f"[Preprocessing] Step 1 completed: cleaned text length={len(cleaned)}")
 
         # Step 2: 语义分块（用于续写任务）
         chunks = self.semantic_chunking(cleaned, target_length, overlap)
+        chunks = chunks[4:min(len(chunks), 244)]
+        logger.info(f"[Preprocessing] Step 2 completed: {len(chunks)} semantic chunks generated")
 
         # Step 3: 句子拆分（用于风格转换任务）
         sentences = self.sentence_split(cleaned)
+        sentences = sentences[50:min(len(sentences), 450)]
+        logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
         # Step 4: 生成续写样本（保持现状）
         continuation_samples = self.generate_continuation_samples(chunks)
+        logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
 
         # Step 5: 生成风格转换样本（LLM增强）
         style_samples = await self.generate_style_transfer_samples(sentences, inference_service)
+        logger.info(f"[Preprocessing] Step 5 completed: {len(style_samples)} style transfer samples generated")
 
         all_samples = continuation_samples + style_samples
 
         # Step 6: 转换为SFT格式
         formatted_data = self.to_sft_format(all_samples)
+        logger.info(f"[Preprocessing] Step 6 completed: {len(formatted_data)} samples formatted to SFT")
 
         # Step 7: 验证和划分
         train_data, val_data, metadata = self.validate_and_split(formatted_data, train_ratio)
+        logger.info(f"[Preprocessing] Step 7 completed: {len(train_data)} train / {len(val_data)} val samples")
 
         # 更新元数据
         metadata.update({
@@ -667,6 +681,7 @@ B: {neutral}
 
         # Step 8: 写入缓存
         self._save_to_cache(raw_text, result)
+        logger.info("[Preprocessing] Step 8 completed: result saved to cache")
         return result
 
     async def adjust_samples_by_comment(

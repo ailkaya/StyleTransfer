@@ -74,7 +74,7 @@
               <template v-if="msg.role === 'user'">
                 <div class="message-bubble user-bubble">
                   <div class="user-content">
-                    {{ msg.requirement }}
+                    {{ msg.original_text + "\n<" + msg.requirement + ">" }}
                   </div>
                   <div class="message-meta">
                     <span class="message-time">{{ formatTime(msg.created_at) }}</span>

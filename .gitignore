@@ -64,7 +64,9 @@ temp/
 # Logs
 logs/
 *.log
+
 /backend/models
 /backend/training_data
 /backend/data
 /backend/test_output
+/backend/cache

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ..models import get_db, Task, Evaluation
 from ..schemas import Response
 from ..utils import get_logger
+from ..celery_app.tasks import re_evaluate_task
 
 router = APIRouter(prefix="/api/tasks", tags=["evaluation"])
 logger = get_logger(__name__)
@@ -135,6 +136,43 @@ async def get_evaluation(
             },
             timestamp=datetime.utcnow(),
         )
+
+
+@router.post("/{task_id}/re-evaluate", response_model=Response)
+async def re_evaluate(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger re-evaluation for a completed task."""
+    logger.info(f"Re-evaluate requested for task: {task_id}")
+
+    # Verify task exists
+    result = await db.execute(
+        select(Task).where(Task.id == task_id)
+    )
+    task = result.scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task with id '{task_id}' not found"
+        )
+
+    # Only allow re-evaluation for completed tasks
+    if task.status != "COMPLETED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task status is {task.status}, re-evaluation only available for COMPLETED tasks"
+        )
+
+    # Dispatch Celery task
+    re_evaluate_task.delay(task_id)
+
+    return Response(
+        code=200,
+        message="重新评估已启动",
+        timestamp=datetime.utcnow(),
+    )
 
 
 @router.post("/{task_id}/comment", response_model=CommentResponse)

@@ -19,5 +19,10 @@ export const evaluationApi = {
   // Get comment for an evaluation
   getComment(taskId) {
     return client.get(`/api/tasks/${taskId}/comment`)
+  },
+
+  // Trigger re-evaluation for a completed task
+  reEvaluate(taskId) {
+    return client.post(`/api/tasks/${taskId}/re-evaluate`)
   }
 }

@@ -373,12 +373,13 @@ class InferenceService:
         use_api: bool = False,
     ) -> str:
         """Generate style-transferred text, using mock or real implementation based on config."""
-        logger.info(f"[Generate] Starting generate style transfer, mock_mode: {GENERATING_MOCK_MODE}")
+        logger.info(f"[Generate] Starting generate, mock_mode: {GENERATING_MOCK_MODE}, use_api: {use_api}")
         if GENERATING_MOCK_MODE or use_api:
             return await self.generate_style_transfer_mock(
                 original_text=original_text,
                 requirement=requirement,
                 target_style=target_style,
+                task_type=task_type,
                 history=history,
             )
         return await self.generate_style_transfer_true(
@@ -395,7 +396,7 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
-        task_type: str = "",
+        task_type: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
     ) -> str:
@@ -522,6 +523,7 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
+        task_type: str,
         history: Optional[List[ChatMessage]] = None,
     ) -> str:
         """
@@ -566,7 +568,7 @@ class InferenceService:
                 })
 
         # Add user prompt
-        prompt = self._build_prompt(original_text, requirement, target_style)
+        prompt = self._build_prompt(original_text, requirement, target_style, task_type)
         messages.append({
             "role": "user",
             "content": prompt,

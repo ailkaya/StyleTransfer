@@ -18,7 +18,14 @@
         </div>
       </div>
       <div class="header-actions">
-        <el-button :icon="Refresh" circle @click="$emit('refresh')" />
+        <el-button
+          :icon="RefreshRight"
+          :loading="reEvaluating"
+          @click="handleReEvaluate"
+        >
+          重新评估
+        </el-button>
+        <el-button :icon="Refresh" @click="$emit('refresh')">刷新</el-button>
       </div>
     </div>
 
@@ -259,6 +266,7 @@ import { ref, watch } from 'vue'
 import {
   Check,
   Refresh,
+  RefreshRight,
   PieChart,
   Document,
   Reading,
@@ -298,12 +306,13 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['refresh', 'commentSubmitted'])
+const emit = defineEmits(['refresh', 'commentSubmitted', 'reEvaluate'])
 
 // Comment state
 const commentText = ref('')
 const isEditing = ref(false)
 const submitting = ref(false)
+const reEvaluating = ref(false)
 
 // Watch for data changes to sync comment text
 watch(() => props.data.comment, (newComment) => {
@@ -349,6 +358,20 @@ async function submitComment() {
     console.log(error)
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleReEvaluate() {
+  reEvaluating.value = true
+  try {
+    await taskStore.reEvaluate(props.data.task_id)
+    ElMessage.success('重新评估已启动，请稍候刷新查看结果')
+    emit('reEvaluate', { taskId: props.data.task_id })
+  } catch (error) {
+    ElMessage.error('启动重新评估失败')
+    console.error(error)
+  } finally {
+    reEvaluating.value = false
   }
 }
 

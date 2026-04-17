@@ -33,6 +33,109 @@ APPLY_COMMENT_ADJUSTMENT = settings.APPLY_COMMENT_ADJUSTMENT
 _missing_tasks_cache = set()
 
 
+def run_evaluation(task_id: str, style_id: str, db: DatabaseOperations, adapter_path: str = None):
+    """Run evaluation for a task and save results to database.
+
+    Args:
+        task_id: The task ID to evaluate.
+        style_id: The style ID associated with the task.
+        db: DatabaseOperations instance.
+        adapter_path: Optional adapter path. If provided, will call complete_training after evaluation.
+
+    Returns:
+        The evaluation data dictionary.
+    """
+    logger.info(f"Starting evaluation for task {task_id}")
+
+    # Update style status to evaluating
+    db.update_style_status(style_id, "evaluating", None)
+    db.update_task_status(task_id, "EVALUATING")
+
+    # Run evaluation
+    inference_service = get_inference_service()
+    evaluation_data = asyncio.run(evaluation_service.generate_evaluation_data(task_id, inference_service))
+
+    task = db.get_task(task_id)
+    style = db.get_style(style_id)
+
+    # Delete existing evaluation if any (for re-evaluation)
+    existing = db.get_evaluation(task_id)
+    if existing:
+        db.session.delete(existing)
+        if db._owns_session:
+            db.session.commit()
+        logger.info(f"Deleted existing evaluation for task {task_id}")
+
+    # Create evaluation record
+    db.create_evaluation({
+        "task_id": task_id,
+        "style_id": style_id,
+        "task_name": task.name or "未命名任务",
+        "target_style": style.target_style if style else "",
+        "overall_score": evaluation_data.get("overall_score", 0),
+        "sample_count": evaluation_data.get("sample_count", 0),
+        "char_retention": evaluation_data.get("char_retention", 0),
+        "style_score": evaluation_data.get("style_score", 0),
+        "fluency_score": evaluation_data.get("fluency_score", 0),
+        "vocab_diversity": evaluation_data.get("vocab_diversity", 0),
+        "length_ratio": evaluation_data.get("length_ratio", 0),
+        "bleu_score": evaluation_data.get("bleu_score", 0),
+        "bert_score": evaluation_data.get("bert_score", 0),
+        "avg_response_time": evaluation_data.get("avg_response_time", 0),
+        "samples": evaluation_data.get("samples", [])
+    })
+
+    if adapter_path is not None:
+        db.complete_training(style_id, task_id, adapter_path)
+
+    logger.info(f"Evaluation completed for task {task_id}")
+    return evaluation_data
+
+
+@celery_app.task(bind=True, max_retries=1, default_retry_delay=5)
+def re_evaluate_task(self, task_id: str):
+    """Celery task for re-evaluating a completed task."""
+    logger.info(f"Starting re-evaluation for task: {task_id}")
+
+    db = DatabaseOperations()
+    try:
+        if not db.task_exists(task_id=task_id):
+            logger.warning(f"Task {task_id} not found, re-evaluation terminate")
+            return
+
+        task = db.get_task(task_id)
+        if task.status != "COMPLETED":
+            logger.warning(f"Task {task_id} is not completed (status={task.status}), cannot re-evaluate")
+            return
+
+        style_id = task.style_id
+        run_evaluation(task_id, style_id, db)
+
+        db.update_style_status(style_id, "available", None)
+        db.update_task_status(task_id, "COMPLETED")
+
+        logger.info(f"Re-evaluation completed for task {task_id}")
+        return {
+            "task_id": task_id,
+            "status": "COMPLETED",
+        }
+
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.error(f"Re-evaluation task {task_id} failed: {error_msg}", exc_info=True)
+        # Restore task to COMPLETED even on failure
+        db.update_task_status(task_id, "COMPLETED")
+        if self.request.retries < 1:
+            raise self.retry(exc=exc, countdown=30)
+        return {
+            "task_id": task_id,
+            "status": "FAILED",
+            "error": error_msg,
+        }
+    finally:
+        db.close()
+
+
 @celery_app.task(bind=True, max_retries=1, default_retry_delay=5)
 def train_style_model(
     self,
@@ -76,7 +179,7 @@ def train_style_model(
         style = db.get_style(style_id)
         if style:
             style_config = {
-                'target_style': f"<{style.target_style}>",
+                'target_style': f"{style.target_style}",
                 'style_name': style.name,
                 'style_description': style.description or ''
             }
@@ -96,7 +199,7 @@ def train_style_model(
         preprocessed = asyncio.run(preprocessor.process(
             raw_text=training_text,
             inference_service=inference_service,
-            target_length=config.get("chunk_size", 1024),
+            target_length=config.get("chunk_size", 512),
             overlap=config.get("chunk_overlap", 256),
             train_ratio=0.95
         ))
@@ -107,7 +210,7 @@ def train_style_model(
         logger.info(f"  - Samples: {preprocessed['metadata']['sample_count']}")
         logger.info(f"  - Train samples: {len(preprocessed['train_data'])}")
         logger.info(f"  - Val samples: {len(preprocessed['val_data'])}")
-        logger.info(f"  - Avg length: {preprocessed['metadata']['avg_length']:.0f} chars")
+        logger.info(f"  - Data length: {preprocessed['metadata']['original_length']:.0f} chars")
 
         # Step 2.5: Adjust samples by parent style comment if applicable
         if parent_style_id and APPLY_COMMENT_ADJUSTMENT:
@@ -199,48 +302,7 @@ def train_style_model(
 
         # Step 4: Run evaluation (this sets status to EVALUATING, then COMPLETED)
         logger.info("Step 4: Running evaluation...")
-
-        # Run evaluation using DatabaseOperations
-        try:
-            logger.info(f"Starting evaluation for task {task_id}")
-
-            # Update style status to evaluating
-            db.update_style_status(style_id, "evaluating", None)
-            db.update_task_status(task_id, "EVALUATING")
-
-            # Run evaluation
-            inference_service = get_inference_service()
-            evaluation_data = asyncio.run(evaluation_service.generate_evaluation_data(task_id, inference_service))
-
-            # Create evaluation record
-            db.create_evaluation({
-                "task_id": task_id,
-                "style_id": style_id,
-                "task_name": db.get_task(task_id).name or "未命名任务",
-                "target_style": style.target_style if style else "",
-                "overall_score": evaluation_data.get("overall_score", 0),
-                "sample_count": evaluation_data.get("sample_count", 0),
-                # "semantic_score": evaluation_data.get("semantic_score", 0),
-                "char_retention": evaluation_data.get("char_retention", 0),
-                "style_score": evaluation_data.get("style_score", 0),
-                "fluency_score": evaluation_data.get("fluency_score", 0),
-                "vocab_diversity": evaluation_data.get("vocab_diversity", 0),
-                "length_ratio": evaluation_data.get("length_ratio", 0),
-                "bleu_score": evaluation_data.get("bleu_score", 0),
-                "bert_score": evaluation_data.get("bert_score", 0),
-                "avg_response_time": evaluation_data.get("avg_response_time", 0),
-                "samples": evaluation_data.get("samples", [])
-            })
-
-            # Complete training (updates both style and task status)
-            db.complete_training(style_id, task_id, adapter_path)
-
-            logger.info(f"Evaluation completed for task {task_id}")
-
-        except Exception as eval_error:
-            logger.error(f"Evaluation failed for task {task_id}: {eval_error}")
-            # Even if evaluation fails, mark as completed (with empty evaluation)
-            db.complete_training(style_id, task_id, adapter_path)
+        run_evaluation(task_id, style_id, db, adapter_path=adapter_path)
 
         logger.info("=" * 60)
         logger.info(f"Training task {task_id} completed successfully with evaluation")

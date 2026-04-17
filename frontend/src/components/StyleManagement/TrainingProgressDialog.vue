@@ -207,6 +207,7 @@ const statusClass = computed(() => {
   const status = task.value?.status || props.styleStatus
   const classes = {
     'PENDING': 'status-pending',
+    'PREPROCESSING': 'status-preprocessing',
     'PROCESSING': 'status-training',
     'COMPLETED': 'status-completed',
     'FAILED': 'status-failed',

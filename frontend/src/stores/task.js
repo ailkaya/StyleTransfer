@@ -130,6 +130,18 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  async function reEvaluate(taskId) {
+    console.log('[TaskStore] Requesting re-evaluation for task:', taskId)
+    try {
+      const response = await evaluationApi.reEvaluate(taskId)
+      console.log('[TaskStore] Re-evaluation requested successfully')
+      return response
+    } catch (err) {
+      console.error('[TaskStore] Failed to request re-evaluation:', err.message)
+      throw err
+    }
+  }
+
   // Update task progress in local state
   function updateTaskProgress(taskId, progressData) {
     console.log('[TaskStore] Updating task progress:', taskId, progressData)
@@ -157,6 +169,7 @@ export const useTaskStore = defineStore('task', () => {
     fetchEvaluation,
     submitComment,
     updateComment,
+    reEvaluate,
     updateTaskProgress
   }
 })

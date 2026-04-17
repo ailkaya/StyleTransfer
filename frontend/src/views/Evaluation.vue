@@ -65,6 +65,7 @@
             :data="evaluationData"
             @refresh="loadEvaluation"
             @commentSubmitted="handleCommentSubmitted"
+            @reEvaluate="handleReEvaluate"
           />
         </div>
 
@@ -152,6 +153,19 @@ function handleCommentSubmitted({ taskId, comment }) {
   if (evaluationData.value && evaluationData.value.task_id === taskId) {
     evaluationData.value.comment = comment
   }
+}
+
+function handleReEvaluate({ taskId }) {
+  // Update local task status to EVALUATING so UI reflects the change
+  const task = taskStore.tasks.find(t => t.id === taskId)
+  if (task) {
+    task.status = 'EVALUATING'
+  }
+  if (taskStore.currentTask?.id === taskId) {
+    taskStore.currentTask.status = 'EVALUATING'
+  }
+  evaluationData.value = null
+  loadEvaluation()
 }
 </script>
 

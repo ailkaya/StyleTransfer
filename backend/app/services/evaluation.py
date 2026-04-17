@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Task, Style, AsyncSessionLocal
 from ..db_operations import DatabaseOperations
-from .preprocessing import TASK_TRANSFER
+from .preprocessing import TASK_TRANSFER, TASK_GENERATE
 from ..utils import get_logger
 
 logger = get_logger(__name__)
@@ -310,8 +310,8 @@ def calculate_metrics(
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
     overall = (
-        bleu_score * 0.30 +
-        bert_score * 0.20 +
+        bleu_score * 0.25 +
+        bert_score * 0.25 +
         avg_style * 0.20 +
         avg_fluency * 0.15 +
         min(vocab_diversity, 100) * 0.075 +
@@ -382,6 +382,7 @@ async def generate_test_samples(
                 requirement="生成一段自然的、多样化的文本内容",
                 target_style="标准",
                 style_id=style_id,
+                task_type=TASK_GENERATE,
                 use_api=True,
             )
             samples.append(response.strip())
@@ -412,7 +413,7 @@ async def generate_transferred_texts(
         try:
             result = await inference_service.generate_style_transfer(
                 original_text=source,
-                requirement=f"转换为{target_style}风格",
+                requirement=f"请把给定的文本转换为{target_style}风格，不要增加原文没有的含义，不要对输出进行解释，不要输出除了转化结果以外的东西。",
                 target_style=target_style,
                 style_id=style_id,
                 task_type=TASK_TRANSFER,
@@ -467,41 +468,63 @@ class EvaluationService:
         Returns:
             Dictionary with evaluation metrics and sample data
         """
+        # logger.info(f"[Evaluation] Starting true evaluation for task: {task_id}, inference_service={inference_service is not None}")
+
         style = await get_style_by_task_id(task_id)
         if not style:
+            logger.error(f"[Evaluation] Style not found for task: {task_id}")
             raise ValueError(f"Task not found: {task_id}")
+        logger.info(f"[Evaluation] Loaded style: {style.name}, target_style={style.target_style}")
 
         if inference_service:
             try:
+                logger.info(f"[Evaluation] Generating {EVALUATION_SAMPLE_COUNT} test samples...")
                 source_texts = await generate_test_samples(inference_service, task_id, sample_count=EVALUATION_SAMPLE_COUNT)
+                logger.info(f"[Evaluation] Generated {len(source_texts)} test samples")
+                for i, src in enumerate(source_texts):
+                    logger.debug(f"[Evaluation] Sample {i+1}: {src[:60]}...")
             except Exception as e:
-                logger.error(f"Failed to generate samples: {e}")
+                logger.error(f"[Evaluation] Failed to generate samples: {e}")
                 source_texts = self._get_fallback_samples()
+                logger.info(f"[Evaluation] Fallback to {len(source_texts)} preset samples")
         else:
             source_texts = self._get_fallback_samples()
+            logger.info(f"[Evaluation] No inference service, using {len(source_texts)} fallback samples")
 
         target_texts = []
         response_times = []
 
         if inference_service:
             try:
+                logger.info(f"[Evaluation] Transferring {len(source_texts)} samples to style '{style.target_style}'...")
                 target_texts, response_times = await generate_transferred_texts(
                     inference_service, task_id, source_texts, style.target_style
                 )
+                logger.info(f"[Evaluation] Transferred {len(target_texts)} texts, avg_response_time={sum(response_times)/len(response_times):.2f}s")
+                for i, tgt in enumerate(target_texts):
+                    logger.debug(f"[Evaluation] Transferred {i+1}: {tgt[:60]}...")
             except Exception as e:
-                logger.error(f"Failed to generate transfers: {e}")
+                logger.error(f"[Evaluation] Failed to generate transfers: {e}")
                 target_texts = source_texts
                 response_times = [0.0] * len(source_texts)
         else:
             target_texts = source_texts
             response_times = [0.0] * len(source_texts)
+            logger.info(f"[Evaluation] No inference service, using source texts as targets")
 
+        logger.info(f"[Evaluation] Calculating metrics for {len(source_texts)} sample pairs...")
         metrics = calculate_metrics(
             task_id=task_id,
             source_texts=source_texts,
             target_texts=target_texts,
             target_style=style.target_style,
             response_times=response_times
+        )
+        logger.info(
+            f"[Evaluation] Metrics calculated: "
+            f"overall_score={metrics.overall_score}, bleu={metrics.bleu_score}, bert={metrics.bert_score}, "
+            f"style={metrics.style_score}, fluency={metrics.fluency_score}, "
+            f"char_retention={metrics.char_retention}, vocab_diversity={metrics.vocab_diversity}, length_ratio={metrics.length_ratio}"
         )
 
         samples = [
@@ -511,6 +534,7 @@ class EvaluationService:
             }
             for src, tgt in zip(source_texts[:3], target_texts[:3])
         ]
+        logger.info(f"[Evaluation] Returning evaluation data with {len(samples)} display samples")
 
         return {
             "task_id": str(task_id),
