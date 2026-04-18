@@ -199,8 +199,7 @@ def train_style_model(
         preprocessed = asyncio.run(preprocessor.process(
             raw_text=training_text,
             inference_service=inference_service,
-            target_length=config.get("chunk_size", 512),
-            overlap=config.get("chunk_overlap", 256),
+            # target_length=config.get("chunk_size", 512),
             train_ratio=0.95
         ))
 
@@ -236,6 +235,8 @@ def train_style_model(
         os.makedirs(output_dir, exist_ok=True)
         preprocessor.save_to_jsonl(preprocessed['train_data'], os.path.join(output_dir, "train.jsonl"))
         preprocessor.save_to_jsonl(preprocessed['val_data'], os.path.join(output_dir, "val.jsonl"))
+        with open(os.path.join(output_dir, "cleaned_text.txt"), 'w', encoding='utf-8') as f:
+            f.write(preprocessed.get('cleaned_text', ''))
         with open(os.path.join(output_dir, "original.txt"), 'w', encoding='utf-8') as f:
             f.write(training_text)
         with open(os.path.join(output_dir, "metadata.json"), 'w', encoding='utf-8') as f:

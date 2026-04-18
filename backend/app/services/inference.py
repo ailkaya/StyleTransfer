@@ -568,10 +568,9 @@ class InferenceService:
                 })
 
         # Add user prompt
-        prompt = self._build_prompt(original_text, requirement, target_style, task_type)
         messages.append({
             "role": "user",
-            "content": prompt,
+            "content": requirement,
         })
 
         try:

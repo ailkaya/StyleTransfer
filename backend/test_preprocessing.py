@@ -27,7 +27,6 @@ async def main():
     parser.add_argument("--output-dir", default="./test_output", help="Directory to save train.jsonl and val.jsonl")
     parser.add_argument("--style", default="鲁迅风格", help="Target style name")
     parser.add_argument("--chunk-size", type=int, default=1024, help="Semantic chunk target length")
-    parser.add_argument("--chunk-overlap", type=int, default=256, help="Chunk overlap")
     parser.add_argument("--cache-dir", default="./cache/preprocess", help="Cache directory for preprocessing results")
     args = parser.parse_args()
     print(args, end='\n')
@@ -55,24 +54,27 @@ async def main():
         raw_text=raw_text,
         inference_service=inference_service,
         target_length=args.chunk_size,
-        overlap=args.chunk_overlap,
         train_ratio=0.95,
     )
 
     train_data = result["train_data"]
     val_data = result["val_data"]
+    text_data = result["cleaned_text"]
     metadata = result["metadata"]
 
-    print(train_data, end='\n\n')
-    print(val_data, end='\n')
+    # print(train_data, end='\n\n')
+    # print(val_data, end='\n')
 
     train_path = os.path.join(args.output_dir, "train.jsonl")
     val_path = os.path.join(args.output_dir, "val.jsonl")
+    text_path = os.path.join(args.output_dir, "cleaned.txt")
     meta_path = os.path.join(args.output_dir, "metadata.json")
 
     save_jsonl(train_data, train_path)
     save_jsonl(val_data, val_path)
 
+    with open(text_path, "w", encoding="utf-8") as f:
+        json.dump(text_data, f, ensure_ascii=False, indent=2)
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
     logger.info(f"Saved metadata to {meta_path}")

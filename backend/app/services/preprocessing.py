@@ -60,7 +60,7 @@ class DataPreprocessor:
 
     def _get_cache_path(self, raw_text: str) -> str:
         key = self._get_cache_key(raw_text)
-        return os.path.join(self.cache_dir, key)
+        return os.path.join(self.cache_dir, "process", key)
 
     def _load_from_cache(self, raw_text: str) -> Optional[Dict]:
         cache_path = self._get_cache_path(raw_text)
@@ -81,6 +81,11 @@ class DataPreprocessor:
                     result[field] = [json.loads(line) for line in f if line.strip()]
                 else:
                     result[field] = json.load(f)
+        # 读取 cleaned_text
+        cleaned_text_path = os.path.join(cache_path, "cleaned_text.txt")
+        if os.path.exists(cleaned_text_path):
+            with open(cleaned_text_path, "r", encoding="utf-8") as f:
+                result["cleaned_text"] = f.read()
         logger.info(f"Loaded preprocessing result from cache: {cache_path}")
         return result
 
@@ -102,6 +107,11 @@ class DataPreprocessor:
                         f.write(json.dumps(item, ensure_ascii=False) + "\n")
                 else:
                     json.dump(result[field], f, ensure_ascii=False, indent=2)
+        # 写入 cleaned_text
+        cleaned_text = result.get("cleaned_text")
+        if cleaned_text is not None:
+            with open(os.path.join(cache_path, "cleaned_text.txt"), "w", encoding="utf-8") as f:
+                f.write(cleaned_text)
         logger.info(f"Saved preprocessing result to cache: {cache_path}")
 
     def _detect_language(self, text: str) -> str:
@@ -130,29 +140,39 @@ class DataPreprocessor:
         else:
             return 'mixed'
 
-    def clean_text(self, raw_text: str) -> str:
-        """
-        清洗原始文本 - 支持中文/英文/混合
+    def _get_clean_cache_path(self, raw_text: str) -> str:
+        key = self._get_cache_key(raw_text)
+        return os.path.join(self.cache_dir, "clean", key, "cleaned_chunks.json")
 
-        处理步骤：
-        1. 去除多余空白
-        2. 标准化标点（英文标点→中文标点，适用于中文/混合文本）
-        3. 去除特殊字符和控制字符
-        4. 段落边界规范化
-        5. 去除页眉页脚模式（如页码、章节标记）
+    def _load_clean_from_cache(self, raw_text: str) -> Optional[str]:
+        path = self._get_clean_cache_path(raw_text)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            logger.info(f"Loaded cleaned text from cache: {path}")
+            return data.get("cleaned_text")
+        return None
+
+    def _save_clean_to_cache(self, raw_text: str, cleaned_text: str):
+        path = self._get_clean_cache_path(raw_text)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"cleaned_text": cleaned_text}, f, ensure_ascii=False)
+        logger.info(f"Saved cleaned text to cache: {path}")
+
+    async def clean_text(
+        self, raw_text: str, inference_service,
+        prev_text: str = ""
+    ) -> str:
+        """
+        使用大模型 API 逐段清洗文本。
+        输入前一个 trunk（仅作上下文参考）和当前 trunk，仅输出当前 trunk 的清洗结果。
         """
         text = raw_text
-        lang = self._detect_language(text)
-
-        # 1. 规范化换行符
         text = text.replace('\r\n', '\n').replace('\r', '\n')
-
-        # 2. 去除控制字符（保留换行）
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-
-        # 3. 根据语言类型处理标点
+        lang = self._detect_language(text)
         if lang in ('chinese', 'mixed'):
-            # 英文标点转为中文标点
             punct_map = {
                 ',': '，', '.': '。', '?': '？', '!': '！',
                 ':': '：', ';': '；', '"': '"', '"': '"',
@@ -161,32 +181,106 @@ class DataPreprocessor:
             }
             for en_punct, cn_punct in punct_map.items():
                 text = text.replace(en_punct, cn_punct)
-
-        # 4. 去除页眉页脚模式（如 "第X页"、"Page X of Y"）
         text = re.sub(r'第\s*\d+\s*[页頁]', '', text)
         text = re.sub(r'Page\s+\d+\s*(of|/|)\s*\d*', '', text, flags=re.IGNORECASE)
         text = re.sub(r'-\s*\d+\s*-', '', text)
-
-        # 5. 规范化空白字符
-        # 保留段落间的换行，但去除行内多余空白
         lines = text.split('\n')
         cleaned_lines = []
         for line in lines:
-            # 去除行首行尾空白
             line = line.strip()
-            # 将行内多个空白合并为一个
             line = re.sub(r'\s+', ' ', line)
-            if line:  # 只保留非空行
+            if line:
                 cleaned_lines.append(line)
-
-        # 段落间保留单个换行
         text = '\n'.join(cleaned_lines)
+        text = text.strip()
 
-        return text.strip()
+        prompt = f"""请对【当前片段】进行文本清洗。前一个片段仅作上下文参考，不影响输出范围。
+
+要求：
+1. 规范化换行符，将 \\r\\n 转为 \\n，去除所有控制字符（保留换行）
+2. 删除以下非正文内容：
+   a) 文末注释块：从"〔x〕"开始到片段结束的所有注释说明文字
+   b) 编辑前言：如"某君昆仲...七年四月二日识。"这类小说引言
+   c) 出版信息：版本说明、页眉页脚、发表信息
+   d) 行内注释标记：删除所有"〔数字〕"格式的标记，但保留标记前后的正文文字
+   e) 文章标题，副标题，章节名等
+3. 清理行首全角空格（　），段落间保留单个换行
+4. 保留原文所有内容和语义，禁止改写、总结、扩写
+5. 仅输出【当前片段】的清洗结果，零额外说明
+
+========== 前一个片段（仅参考，不要输出） ==========
+{prev_text}
+
+========== 当前片段（请清洗并仅输出此部分） ==========
+{text}
+"""
+        
+        try:
+            text = await inference_service.call_llm_raw(
+                prompt=prompt,
+                system_prompt="你是一个文本清洗助手，请按要求输出文本的清洗结果，不要输出其他内容，不要解释。",
+                temperature=0.6,
+                max_tokens=8192
+            )
+            text = text.strip()
+            # print("call API success")
+        except Exception as e:
+            # print("call API failed")
+            logger.error(f"LLM clean_text failed: {e}, fallback to heuristic cleaning")
+
+        return text
+
+    async def _clean_chunks(
+        self,
+        raw_chunks: List[TextChunk],
+        raw_text: str,
+        inference_service,
+        target_length: int,
+        handle_text_length: int = 2048,
+    ) -> Tuple[List[TextChunk], str]:
+        """逐段清洗 raw_chunks，整体缓存，合并过短片段后重新分块。返回 (chunks, cleaned_text)。"""
+        cached_text = self._load_clean_from_cache(raw_text)
+        if cached_text is not None:
+            # print("[Clean] use cache")
+            chunks = self.semantic_chunking(cached_text, target_length, overlap=0)
+            logger.info(f"[Preprocessing] Step 2 completed: {len(chunks)} chunks loaded from clean cache")
+            return chunks, cached_text
+
+        # 无缓存：拼接短 chunk 成组，每组总长度 >= handle_text_length
+        # print("[Clean] no cache")
+        groups = []
+        current_group = []
+        current_len = 0
+        for chunk in raw_chunks:
+            current_group.append(chunk)
+            current_len += len(chunk.content)
+            if current_len >= handle_text_length:
+                groups.append(current_group)
+                current_group = []
+                current_len = 0
+        if current_group:
+            groups.append(current_group)
+
+        # 逐组调用 clean_text
+        cleaned_parts = []
+        prev_text = ""
+        for group in groups:
+            combined = "\n".join(c.content for c in group)
+            cleaned = await self.clean_text(combined, inference_service, prev_text=prev_text)
+            cleaned_parts.append(cleaned)
+            prev_text = combined
+
+        cleaned_text = "\n".join(cleaned_parts)
+
+        # 重新按 target_length 语义分块
+        chunks = self.semantic_chunking(cleaned_text, target_length, overlap=0)
+
+        self._save_clean_to_cache(raw_text, cleaned_text)
+        return chunks, cleaned_text
 
     def sentence_split(self, text: str) -> List[str]:
         """
-        句子级文本拆分：按句子结束符切分，合并过短片段，对过长片段再切分
+        句子级文本拆分：按句子结束符切分，合并过短片段，保持长句子完整性
         """
         # 按句子结束符切分并保留标点
         raw_parts = re.split(r'([。！？.!?]+)', text)
@@ -215,28 +309,8 @@ class DataPreprocessor:
                 else:
                     merged.append(s)
 
-        # 对过长片段 (>150字) 按逗号/分号再切
-        sentences_max_length = 150
-        final = []
-        for s in merged:
-            if len(s) > sentences_max_length:
-                sub_parts = re.split(r'([，,；;])', s)
-                current = ""
-                for j in range(0, len(sub_parts) - 1, 2):
-                    chunk = sub_parts[j] + sub_parts[j + 1]
-                    if len(current) + len(chunk) > sentences_max_length and current:
-                        final.append(current)
-                        current = chunk
-                    else:
-                        current += chunk
-                if len(sub_parts) % 2 == 1:
-                    current += sub_parts[-1]
-                if current:
-                    final.append(current)
-            else:
-                final.append(s)
-
-        return [s.strip() for s in final if len(s.strip()) >= 10]
+        # 返回合并后的结果，不再对长句子进行内部切分
+        return merged
 
     def _find_semantic_boundaries(self, text: str) -> List[int]:
         """
@@ -310,7 +384,7 @@ class DataPreprocessor:
             # 最终回退：按目标长度硬切分
             return min(ideal_end, len(text))
 
-    def semantic_chunking(self, text: str, target_length: int = 1024,
+    def semantic_chunking(self, text: str, target_length: int = 512,
                          overlap: int = 256) -> List[TextChunk]:
         """
         语义边界分块策略（方案C）
@@ -600,8 +674,8 @@ B: {neutral}
 
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
-    async def process(self, raw_text: str, inference_service, target_length: int = 1024,
-                      overlap: int = 256, train_ratio: float = 0.95) -> Dict:
+    async def process(self, raw_text: str, inference_service, target_length: int = 512,
+                      train_ratio: float = 0.95) -> Dict:
         """
         完整预处理流程
 
@@ -612,7 +686,6 @@ B: {neutral}
             raw_text: 原始输入文本
             inference_service: 推理服务实例（用于调用LLM）
             target_length: 目标分块长度
-            overlap: 重叠窗口大小
             train_ratio: 训练集比例
 
         Returns:
@@ -625,21 +698,24 @@ B: {neutral}
             return cached
         logger.info("[Preprocessing] Step 0 completed: no cache found, proceeding with processing")
 
-        # Step 1: 清洗文本
-        cleaned = self.clean_text(raw_text)
-        logger.info(f"[Preprocessing] Step 1 completed: cleaned text length={len(cleaned)}")
+        # Step 1: 对原始文本进行语义分块（overlap=0，防止数据过大）
+        raw_chunks = self.semantic_chunking(raw_text, target_length, overlap=0)
+        # raw_chunks = raw_chunks[4:min(len(raw_chunks), 244)]
+        logger.info(f"[Preprocessing] Step 1 completed: {len(raw_chunks)} raw chunks generated")
 
-        # Step 2: 语义分块（用于续写任务）
-        chunks = self.semantic_chunking(cleaned, target_length, overlap)
-        chunks = chunks[4:min(len(chunks), 244)]
-        logger.info(f"[Preprocessing] Step 2 completed: {len(chunks)} semantic chunks generated")
-
+        # Step 2: 逐段清洗（整体缓存）
+        chunks, cleaned_text = await self._clean_chunks(raw_chunks, raw_text, inference_service, target_length)
+        logger.info(f"[Preprocessing] Step 2 completed: {len(chunks)} chunks cleaned")
+        
         # Step 3: 句子拆分（用于风格转换任务）
-        sentences = self.sentence_split(cleaned)
-        sentences = sentences[50:min(len(sentences), 450)]
+        sentences = []
+        for chunk in chunks:
+            chunk_sentences = self.sentence_split(chunk.content)
+            sentences.extend(chunk_sentences)
+        sentences = sentences[:min(len(sentences), 450)]
         logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
-        # Step 4: 生成续写样本（保持现状）
+        # Step 4: 生成续写样本
         continuation_samples = self.generate_continuation_samples(chunks)
         logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
 
@@ -661,7 +737,7 @@ B: {neutral}
         metadata.update({
             "language": self._detect_language(raw_text),
             "original_length": len(raw_text),
-            "cleaned_length": len(cleaned),
+            "cleaned_length": len(cleaned_text),
             "chunk_count": len(chunks),
             "sentence_count": len(sentences),
             "continuation_sample_count": len(continuation_samples),
@@ -676,7 +752,8 @@ B: {neutral}
             "val_data": val_data,
             "metadata": metadata,
             "chunks": [asdict(c) for c in chunks],
-            "samples": all_samples
+            "samples": all_samples,
+            "cleaned_text": cleaned_text,
         }
 
         # Step 8: 写入缓存
