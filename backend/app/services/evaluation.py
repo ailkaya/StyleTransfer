@@ -310,9 +310,9 @@ def calculate_metrics(
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
     overall = (
-        bleu_score * 0.25 +
-        bert_score * 0.25 +
-        avg_style * 0.20 +
+        bleu_score * 0.15 +
+        bert_score * 0.4 +
+        avg_style * 0.15 +
         avg_fluency * 0.15 +
         min(vocab_diversity, 100) * 0.075 +
         (100 - abs(length_ratio - 100)) * 0.075
@@ -356,14 +356,14 @@ async def generate_test_samples(
 ) -> List[str]:
     """Generate diverse test samples using LLM API."""
     topics = [
-        "科技与创新", "日常生活", "工作职场", "教育培训",
+        "日常生活", "工作职场", "教育培训",
         "文化娱乐", "商业经济", "社会热点", "个人成长"
     ]
 
     prompts = [
-        "请写一段关于{topic}的简短文字，100字左右。",
-        "描述一下你对{topic}的看法，约80-120字。",
-        "请分享一段关于{topic}的经历或观点，100字左右。",
+        "请写一段关于{topic}的简短文字，60字左右。",
+        "描述一下你对{topic}的看法，约60字。",
+        "请分享一段关于{topic}的经历或观点，60字左右。",
     ]
 
     # Get style_id once outside the loop

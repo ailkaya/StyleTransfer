@@ -168,7 +168,7 @@ class InferenceService:
 
     def _generate_system_prompt(self, style_tag: str) -> str:
         """根据风格配置生成系统提示词"""
-        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。"
+        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。不要使用深度思考。"
 
     def _build_prompt(
         self,
@@ -490,13 +490,14 @@ class InferenceService:
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=512,
+                    max_new_tokens=256,
                     do_sample=True,
-                    temperature=0.7,
-                    top_p=0.85,
+                    temperature=0.8,
+                    top_p=0.9,
+                    top_k=50,
                     eos_token_id=tokenizer.eos_token_id,
                     pad_token_id=tokenizer.pad_token_id,
-                    repetition_penalty=1.02,
+                    repetition_penalty=1.1,
                     early_stopping=False,    
                 )
 
@@ -509,7 +510,7 @@ class InferenceService:
             result = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
             # print(result)
-            result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL)
+            result = re.sub(r"<think>.*?</think>", "", result.strip(), flags=re.DOTALL)
 
             logger.info(f"Local inference completed in {inference_time:.2f}s for style {style_id}")
             return result.strip()

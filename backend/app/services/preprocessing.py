@@ -700,7 +700,7 @@ B: {neutral}
 
         # Step 1: 对原始文本进行语义分块（overlap=0，防止数据过大）
         raw_chunks = self.semantic_chunking(raw_text, target_length, overlap=0)
-        # raw_chunks = raw_chunks[4:min(len(raw_chunks), 244)]
+        raw_chunks = raw_chunks[4:min(len(raw_chunks), 244)]
         logger.info(f"[Preprocessing] Step 1 completed: {len(raw_chunks)} raw chunks generated")
 
         # Step 2: 逐段清洗（整体缓存）
@@ -712,18 +712,20 @@ B: {neutral}
         for chunk in chunks:
             chunk_sentences = self.sentence_split(chunk.content)
             sentences.extend(chunk_sentences)
-        sentences = sentences[:min(len(sentences), 450)]
+        sentences = sentences[4:min(len(sentences), 604)]
         logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
         # Step 4: 生成续写样本
-        continuation_samples = self.generate_continuation_samples(chunks)
-        logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
+        # continuation_samples = self.generate_continuation_samples(chunks)
+        # logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
 
         # Step 5: 生成风格转换样本（LLM增强）
         style_samples = await self.generate_style_transfer_samples(sentences, inference_service)
         logger.info(f"[Preprocessing] Step 5 completed: {len(style_samples)} style transfer samples generated")
 
-        all_samples = continuation_samples + style_samples
+        # all_samples = continuation_samples + style_samples
+
+        all_samples = style_samples
 
         # Step 6: 转换为SFT格式
         formatted_data = self.to_sft_format(all_samples)
@@ -740,7 +742,7 @@ B: {neutral}
             "cleaned_length": len(cleaned_text),
             "chunk_count": len(chunks),
             "sentence_count": len(sentences),
-            "continuation_sample_count": len(continuation_samples),
+            # "continuation_sample_count": len(continuation_samples),
             "style_sample_count": len(style_samples),
             "sample_count": len(all_samples),
             "style_tag": self.style_tag,

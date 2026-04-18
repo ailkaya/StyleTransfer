@@ -39,7 +39,7 @@ class TrainingService:
             # ↑ alpha → LoRA更新对模型影响更大
             # 一般设置为 2 × r（如16→32）
 
-            "lora_dropout": 0.1,
+            "lora_dropout": 0.06,
             # LoRA层的dropout概率
             # 防止过拟合（尤其小数据集很重要）
             # 常用：0.05 ~ 0.1
@@ -109,7 +109,7 @@ class TrainingService:
             # LoRA中作用较小，但建议保留
 
 
-            "max_grad_norm": 1.0,
+            "max_grad_norm": 0.8,
             # 梯度裁剪（gradient clipping）
             # 防止梯度爆炸
             # 常用：0.5 ~ 1.0
