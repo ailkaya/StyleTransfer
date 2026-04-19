@@ -21,10 +21,6 @@ class TextChunk:
     end_pos: int
     source: str
 
-TASK_GENERATE = "generate"
-TASK_TRANSFER = "style_transfer"
-TASK_TRANSFER_REVERSE = "style_transfer_reverse"
-TASK_CONTINUATION = "continuation"
 
 class DataPreprocessor:
     """
@@ -169,31 +165,6 @@ class DataPreprocessor:
         输入前一个 trunk（仅作上下文参考）和当前 trunk，仅输出当前 trunk 的清洗结果。
         """
         text = raw_text
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-        lang = self._detect_language(text)
-        if lang in ('chinese', 'mixed'):
-            punct_map = {
-                ',': '，', '.': '。', '?': '？', '!': '！',
-                ':': '：', ';': '；', '"': '"', '"': '"',
-                "'": ''', "'": ''', '(': '（', ')': '）',
-                '[': '【', ']': '】', '{': '｛', '}': '｝'
-            }
-            for en_punct, cn_punct in punct_map.items():
-                text = text.replace(en_punct, cn_punct)
-        text = re.sub(r'第\s*\d+\s*[页頁]', '', text)
-        text = re.sub(r'Page\s+\d+\s*(of|/|)\s*\d*', '', text, flags=re.IGNORECASE)
-        text = re.sub(r'-\s*\d+\s*-', '', text)
-        lines = text.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            line = line.strip()
-            line = re.sub(r'\s+', ' ', line)
-            if line:
-                cleaned_lines.append(line)
-        text = '\n'.join(cleaned_lines)
-        text = text.strip()
-
         prompt = f"""请对【当前片段】进行文本清洗。前一个片段仅作上下文参考，不影响输出范围。
 
 要求：
@@ -226,6 +197,30 @@ class DataPreprocessor:
             # print("call API success")
         except Exception as e:
             # print("call API failed")
+            text = text.replace('\r\n', '\n').replace('\r', '\n')
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+            lang = self._detect_language(text)
+            if lang in ('chinese', 'mixed'):
+                punct_map = {
+                    ',': '，', '.': '。', '?': '？', '!': '！',
+                    ':': '：', ';': '；', '"': '"', '"': '"',
+                    "'": ''', "'": ''', '(': '（', ')': '）',
+                    '[': '【', ']': '】', '{': '｛', '}': '｝'
+                }
+                for en_punct, cn_punct in punct_map.items():
+                    text = text.replace(en_punct, cn_punct)
+            text = re.sub(r'第\s*\d+\s*[页頁]', '', text)
+            text = re.sub(r'Page\s+\d+\s*(of|/|)\s*\d*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'-\s*\d+\s*-', '', text)
+            lines = text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                line = line.strip()
+                line = re.sub(r'\s+', ' ', line)
+                if line:
+                    cleaned_lines.append(line)
+            text = '\n'.join(cleaned_lines)
+            text = text.strip()
             logger.error(f"LLM clean_text failed: {e}, fallback to heuristic cleaning")
 
         return text
@@ -442,7 +437,6 @@ class DataPreprocessor:
                     "instruction": "请续写以下文本，并保持语言风格、语气、节奏和风格一致",
                     "input": prompt,
                     "output": completion,
-                    "task_type": TASK_CONTINUATION,
                 })
         return samples
 
@@ -573,7 +567,6 @@ B: {neutral}
                 "instruction": f"请将文本改写为{style_name}风格，保持原意，不扩写",
                 "input": neutral,
                 "output": original,
-                "task_type": TASK_TRANSFER,
             })
 
             # 构造反向样本（30%概率）
@@ -583,7 +576,6 @@ B: {neutral}
                     "instruction": "请将文本改写为中性表达，保持原意，不扩写",
                     "input": original,
                     "output": neutral,
-                    "task_type": TASK_TRANSFER_REVERSE,
                 })
 
         logger.info(f"Style transfer sample generation complete: {len(samples)} samples kept")
@@ -598,9 +590,6 @@ B: {neutral}
 <|style_tag|>
 {self.style_tag}
 
-<|task|>
-{s["task_type"]}
-
 <|instruction|>
 {s["instruction"]}
 
@@ -612,7 +601,6 @@ B: {neutral}
             data.append({
                 "text": text,
                 "style_tag": self.style_tag,
-                "task_type": s["task_type"],
                 "system": self.system_prompt,
                 "instruction": s["instruction"],
                 "input": s["input"],
@@ -873,7 +861,6 @@ B: {neutral}
             adjusted_raw = json.loads(response)
 
             adjusted = {
-                'task_type': sample.get('task_type', 'general'),
                 'system': adjusted_raw.get('system', system),
                 'instruction': adjusted_raw.get('instruction', instruction),
                 'input': adjusted_raw.get('input', input_text),
@@ -883,9 +870,6 @@ B: {neutral}
 
             adjusted['text'] = f"""<|system|>
 {adjusted['system']}
-
-<|task|>
-{adjusted['task_type']}
 
 <|instruction|>
 {adjusted['instruction']}

@@ -168,24 +168,18 @@ class InferenceService:
 
     def _generate_system_prompt(self, style_tag: str) -> str:
         """根据风格配置生成系统提示词"""
-        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。不要使用深度思考。"
+        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点，请按照<|instruction|>中的要求并结合<|input|>进行回复。不要使用深度思考。"
 
     def _build_prompt(
         self,
         original_text: str,
         requirement: str,
         target_style: str,
-        task_type: str,
     ) -> str:
         """Build the prompt for style transfer."""
-        prompt = f"""<|system|>
-{self._generate_system_prompt(style_tag=target_style)}
-
+        prompt = f"""
 <|style_tag|>
 {target_style}
-
-<|task|>
-{task_type}
 
 <|instruction|>
 {requirement}
@@ -194,6 +188,37 @@ class InferenceService:
 {original_text}
 """
         return prompt
+
+    def _build_messages_with_history(
+        self,
+        system_prompt: str,
+        history: Optional[List[ChatMessage]],
+        current_prompt: str,
+    ) -> List[Dict]:
+        """Build chat messages with history collapsed into a single context string.
+
+        History is appended to the system prompt so the model sees it as background
+        reference only. The current request is sent as a standalone user message to
+        prevent the model from confusing historical turns with the present request.
+        """
+        messages = []
+
+        full_system = system_prompt
+        if history:
+            history_parts = []
+            for i, msg in enumerate(history, 1):
+                history_parts.append(f"[对话记录 {i}] {msg.content}")
+            history_text = "\n".join(history_parts)
+            full_system += (
+                f"\n\n===== 以下是你的历史对话记录，仅供参考 =====\n"
+                f"{history_text}\n"
+                f"===== 历史记录结束，请仅处理下面的【当前请求】 ====="
+            )
+
+        messages.append({"role": "system", "content": full_system})
+        messages.append({"role": "user", "content": f"【当前请求】\n{current_prompt}"})
+
+        return messages
 
     def _ensure_configured(self):
         """Ensure client is configured, retry once if not."""
@@ -367,7 +392,6 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
-        task_type: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
         use_api: bool = False,
@@ -379,14 +403,12 @@ class InferenceService:
                 original_text=original_text,
                 requirement=requirement,
                 target_style=target_style,
-                task_type=task_type,
                 history=history,
             )
         return await self.generate_style_transfer_true(
             original_text=original_text,
             requirement=requirement,
             target_style=target_style,
-            task_type=task_type,
             history=history,
             style_id=style_id,
         )
@@ -396,7 +418,6 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
-        task_type: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
     ) -> str:
@@ -440,29 +461,11 @@ class InferenceService:
 
             logger.info(f"[Generate] model {base_model_name} and adapter {adapter_path} load successfully")
 
-            # Add system message for chat format
-            messages = []
-
-            # Add system message
-            messages.append({
-                "role": "system",
-                "content": self._generate_system_prompt(style_tag=target_style)
-            })
-            
-            # Add history if provided
-            if history:
-                for msg in history:
-                    messages.append({
-                        "role": msg.role,
-                        "content": msg.content,
-                    })
-            
-            # Add user prompt
-            prompt = self._build_prompt(original_text, requirement, target_style, task_type)
-            messages.append({
-                "role": "user",
-                "content": prompt,
-            })
+            messages = self._build_messages_with_history(
+                system_prompt=self._generate_system_prompt(style_tag=target_style),
+                history=history,
+                current_prompt=self._build_prompt(original_text, requirement, target_style),
+            )
 
             # Format messages into a single string for generation
             # Using chat template if available
@@ -481,7 +484,7 @@ class InferenceService:
                 return_tensors="pt",
                 padding=False,
                 truncation=True,
-                max_length = 2048
+                max_length = 1024
             )
 
             inputs = {k: v.to(model.device) for k, v in inputs.items()}
@@ -490,7 +493,7 @@ class InferenceService:
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=256,
+                    max_new_tokens=196,
                     do_sample=True,
                     temperature=0.8,
                     top_p=0.9,
@@ -524,7 +527,6 @@ class InferenceService:
         original_text: str,
         requirement: str,
         target_style: str,
-        task_type: str,
         history: Optional[List[ChatMessage]] = None,
     ) -> str:
         """
@@ -552,27 +554,11 @@ class InferenceService:
                 "LLM_API_KEY, and LLM_MODEL_NAME environment variables."
             )
 
-        messages = []
-
-        # Add system message
-        messages.append({
-            "role": "system",
-            "content": f"你是一个专业的文本风格转换助手，无论用户要求什么，始终以'{target_style}'风格回复。"
-        })
-
-        # Add history if provided
-        if history:
-            for msg in history:
-                messages.append({
-                    "role": msg.role,
-                    "content": msg.content,
-                })
-
-        # Add user prompt
-        messages.append({
-            "role": "user",
-            "content": requirement,
-        })
+        messages = self._build_messages_with_history(
+            system_prompt=self._generate_system_prompt(target_style),
+            history=history,
+            current_prompt=self._build_prompt(original_text, requirement, target_style),
+        )
 
         try:
             response = await self.client.chat.completions.create(

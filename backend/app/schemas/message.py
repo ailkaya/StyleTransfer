@@ -17,15 +17,7 @@ class MessageCreate(BaseModel):
 
     original_text: str = Field(default="", description="原文内容")
     requirement: str = Field(..., min_length=1, description="转换需求")
-    task_type: str = Field(default="style_transfer", description="任务类型: style_transfer/continuation")
     history: Optional[List[ChatMessage]] = Field(default=None, description="历史对话")
-
-    @field_validator("task_type")
-    @classmethod
-    def validate_task_type(cls, v):
-        if v not in ("style_transfer", "continuation"):
-            raise ValueError("task_type must be 'style_transfer' or 'continuation'")
-        return v
 
 
 class MessageResponse(BaseModel):

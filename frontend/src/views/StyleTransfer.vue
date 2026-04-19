@@ -160,20 +160,23 @@
                 />
               </div>
 
-              <!-- Task Type Selector -->
+              <!-- Requirement Input -->
               <div class="input-column">
                 <div class="field-header">
                   <span class="field-label">
                     <el-icon><EditPen /></el-icon>
                     需求
                   </span>
+                  <span class="char-count">{{ requirement.length }}</span>
                 </div>
-                <div class="task-type-selector">
-                  <el-radio-group v-model="taskType" size="large">
-                    <el-radio-button label="风格转换" value="style_transfer" />
-                    <el-radio-button label="续写" value="continuation" />
-                  </el-radio-group>
-                </div>
+                <el-input
+                  v-model="requirement"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="输入转换需求..."
+                  resize="none"
+                  class="custom-textarea"
+                />
               </div>
             </div>
 
@@ -277,13 +280,8 @@ watch(() => styleStore.availableStyles.length, (newLength) => {
   }
 })
 const originalText = ref('')
-const taskType = ref('style_transfer')
+const requirement = ref('')
 const messagesContainer = ref(null)
-
-const taskTypeLabelMap = {
-  style_transfer: '风格转换',
-  continuation: '续写'
-}
 
 const currentStyle = computed(() =>
   styleStore.getStyleById(selectedStyleId.value)
@@ -291,7 +289,7 @@ const currentStyle = computed(() =>
 
 const canSend = computed(() =>
   selectedStyleId.value &&
-  taskType.value &&
+  requirement.value.trim() &&
   !messageStore.sending
 )
 
@@ -312,13 +310,13 @@ async function sendMessage() {
 
   const data = {
     original_text: originalText.value.trim(),
-    requirement: taskTypeLabelMap[taskType.value],
-    task_type: taskType.value
+    requirement: requirement.value.trim()
   }
 
   try {
     await messageStore.sendMessage(selectedStyleId.value, data)
     originalText.value = ''
+    requirement.value = ''
     nextTick(() => scrollToBottom())
   } catch (error) {
     ElMessage.error(error.message)

@@ -17,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Task, Style, AsyncSessionLocal
 from ..db_operations import DatabaseOperations
-from .preprocessing import TASK_TRANSFER, TASK_GENERATE
 from ..utils import get_logger
 
 logger = get_logger(__name__)
@@ -382,7 +381,6 @@ async def generate_test_samples(
                 requirement="生成一段自然的、多样化的文本内容",
                 target_style="标准",
                 style_id=style_id,
-                task_type=TASK_GENERATE,
                 use_api=True,
             )
             samples.append(response.strip())
@@ -416,7 +414,6 @@ async def generate_transferred_texts(
                 requirement=f"请把给定的文本转换为{target_style}风格，不要增加原文没有的含义，不要对输出进行解释，不要输出除了转化结果以外的东西。",
                 target_style=target_style,
                 style_id=style_id,
-                task_type=TASK_TRANSFER,
             )
             transferred.append(result.strip())
         except Exception as e:
