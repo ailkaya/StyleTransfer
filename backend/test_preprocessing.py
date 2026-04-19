@@ -22,6 +22,14 @@ def save_jsonl(data: list, filepath: str):
 
 
 async def main():
+    from config import settings
+    from app.utils import setup_logging
+    setup_logging(
+        log_level=settings.LOG_LEVEL,
+        log_file=settings.LOG_FILE,
+        log_to_console=True
+    )
+
     parser = argparse.ArgumentParser(description="Test enhanced preprocessing pipeline")
     parser.add_argument("file_path", help="Path to the raw training text file")
     parser.add_argument("--output-dir", default="./test_output", help="Directory to save train.jsonl and val.jsonl")
@@ -84,7 +92,7 @@ async def main():
     logger.info(f"  - Language: {metadata['language']}")
     logger.info(f"  - Chunks: {metadata['chunk_count']}")
     logger.info(f"  - Sentences: {metadata['sentence_count']}")
-    logger.info(f"  - Continuation samples: {metadata['continuation_sample_count']}")
+    # logger.info(f"  - Continuation samples: {metadata['continuation_sample_count']}")
     logger.info(f"  - Style samples: {metadata['style_sample_count']}")
     logger.info(f"  - Total samples: {metadata['sample_count']}")
     logger.info(f"  - Valid samples: {metadata['valid_samples']}")

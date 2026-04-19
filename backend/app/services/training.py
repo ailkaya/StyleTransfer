@@ -377,6 +377,22 @@ class TrainingService:
             train_dataset = Dataset.from_list(training_text)
             val_dataset = Dataset.from_list(validation_text or [])
 
+            def _normalize_ids(result):
+                """Normalize tokenizer output to a flat list of int token IDs."""
+                if hasattr(result, "input_ids"):
+                    ids = result.input_ids
+                elif isinstance(result, dict) and "input_ids" in result:
+                    ids = result["input_ids"]
+                else:
+                    ids = result
+                # Convert tensor/array to list
+                if hasattr(ids, "tolist"):
+                    ids = ids.tolist()
+                # Unwrap batch dimension if present
+                if isinstance(ids, list) and len(ids) > 0 and isinstance(ids[0], list):
+                    ids = ids[0]
+                return list(ids)
+
             # ========= tokenize + label mask =========
             def tokenize_fn(example):
                 messages = example["messages"]
@@ -388,21 +404,21 @@ class TrainingService:
                     )
 
                 # 完整 tokenize（不 truncation），用于计算 labels
-                full_input_ids = tokenizer.apply_chat_template(
+                full_input_ids = _normalize_ids(tokenizer.apply_chat_template(
                     messages,
                     tokenize=True,
                     add_generation_prompt=False,
-                )
+                ))
                 full_labels = [-100] * len(full_input_ids)
 
                 # 逐条计算 cumulative token lengths，确定 assistant 部分范围
-                cum_lens = []
-                for i in range(len(messages) + 1):
-                    prefix_ids = tokenizer.apply_chat_template(
+                cum_lens = [0]
+                for i in range(1, len(messages) + 1):
+                    prefix_ids = _normalize_ids(tokenizer.apply_chat_template(
                         messages[:i],
                         tokenize=True,
                         add_generation_prompt=False,
-                    )
+                    ))
                     cum_lens.append(len(prefix_ids))
 
                 # 只保留 assistant 部分的 labels

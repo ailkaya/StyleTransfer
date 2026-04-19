@@ -685,7 +685,7 @@ B: {neutral}
 
         # Step 1: 对原始文本进行语义分块（overlap=0，防止数据过大）
         raw_chunks = self.semantic_chunking(raw_text, target_length, overlap=0)
-        raw_chunks = raw_chunks[4:min(len(raw_chunks), 244)]
+        raw_chunks = raw_chunks[:min(len(raw_chunks), 240)]
         logger.info(f"[Preprocessing] Step 1 completed: {len(raw_chunks)} raw chunks generated")
 
         # Step 2: 逐段清洗（整体缓存）
@@ -697,7 +697,7 @@ B: {neutral}
         for chunk in chunks:
             chunk_sentences = self.sentence_split(chunk.content)
             sentences.extend(chunk_sentences)
-        sentences = sentences[4:min(len(sentences), 604)]
+        sentences = sentences[:min(len(sentences), 600)]
         logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
         # Step 4: 生成续写样本

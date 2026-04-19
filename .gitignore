@@ -72,3 +72,4 @@ logs/
 /backend/cache
 /backend/test_preprocessing.py
 /backend/test.py
+/backend/run.sh
