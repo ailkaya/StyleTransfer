@@ -1,5 +1,12 @@
 import client from './client'
 
+export const modelApi = {
+  // List available base models
+  list() {
+    return client.get('/api/models')
+  },
+}
+
 export const styleApi = {
   // List styles with pagination and search
   list(params = {}) {

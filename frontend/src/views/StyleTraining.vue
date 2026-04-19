@@ -175,10 +175,10 @@
                 @click="form.base_model = model.id"
               >
                 <div class="model-badge" :class="model.type">
-                  {{ model.type === 'llama' ? 'LLaMA' : 'Qwen' }}
+                  {{ getModelBadge(model.type) }}
                 </div>
                 <div class="model-icon">
-                  <el-icon :size="32"><component :is="model.icon" /></el-icon>
+                  <el-icon :size="32"><Cpu /></el-icon>
                 </div>
                 <h4>{{ model.name }}</h4>
                 <p>{{ model.description }}</p>
@@ -424,6 +424,7 @@ import { useRouter } from 'vue-router'
 import { useStyleStore } from '@/stores/style'
 import { useTaskStore } from '@/stores/task'
 import { ElMessage } from 'element-plus'
+import { modelApi } from '@/api/styles'
 import {
   Cpu,
   InfoFilled,
@@ -445,14 +446,10 @@ const router = useRouter()
 const styleStore = useStyleStore()
 const taskStore = useTaskStore()
 
-// Load available styles on mount
-onMounted(async () => {
-  await styleStore.fetchStyles()
-})
-
 const currentStep = ref(0)
 const formRef = ref(null)
 const loading = ref(false)
+const models = ref([])
 
 const steps = [
   { key: 'basic', label: '基本信息' },
@@ -461,32 +458,11 @@ const steps = [
   { key: 'config', label: '训练参数' }
 ]
 
-const models = [
-  {
-    id: 'llama-2-3b',
-    name: 'LLaMA-2-3B',
-    type: 'llama',
-    icon: 'Cpu',
-    description: 'Meta开源的基础模型，性能均衡',
-    params: '3B参数',
-    speed: '速度较快'
-  },
-  {
-    id: 'qwen3-1.7b',
-    name: 'Qwen3-1.7B',
-    type: 'qwen',
-    icon: 'ChatLineRound',
-    description: '阿里Qwen3系列，双模式推理，119种语言支持',
-    params: '1.7B参数',
-    speed: '轻量高效'
-  }
-]
-
 const form = reactive({
   name: '',
   description: '',
   target_style: '',
-  base_model: 'llama-2-3b',
+  base_model: '',
   training_text: '',
   continue_training: false,
   parent_style_id: null,
@@ -495,6 +471,23 @@ const form = reactive({
     num_epochs: 3,
     batch_size: 4,
     max_length: 512
+  }
+})
+
+// Load data on mount
+onMounted(async () => {
+  await styleStore.fetchStyles()
+  try {
+    const res = await modelApi.list()
+    if (res.code === 200 && res.data) {
+      models.value = res.data
+      // Set default base_model to first available model
+      if (models.value.length > 0 && !form.base_model) {
+        form.base_model = models.value[0].id
+      }
+    }
+  } catch (e) {
+    ElMessage.error('获取模型列表失败')
   }
 })
 
@@ -520,12 +513,11 @@ const estimatedTime = computed(() => {
   const baseTime = 3 // 基础准备时间 (分钟)
   const preprocessingTime = Math.min(tokenCount / 50000, 5) // 预处理时间，最多5分钟
 
-  // 模型速度因子 (token/秒，粗略估计)
-  const modelSpeedMap = {
-    'llama-2-3b': 800,
-    'qwen3-1.7b': 1000
-  }
-  const modelSpeed = modelSpeedMap[form.base_model] || 800
+  // 模型速度因子 (token/秒)
+  const modelSpeed = computed(() => {
+    const model = models.value.find(m => m.id === form.base_model)
+    return model?.speed_value || 800
+  })
 
   // 计算每轮时间
   // 每轮需要处理所有数据，考虑批次大小
@@ -577,8 +569,13 @@ const selectedParentStyle = computed(() => {
 })
 
 function getModelName(id) {
-  const model = models.find(m => m.id === id)
+  const model = models.value.find(m => m.id === id)
   return model ? model.name : id
+}
+
+function getModelBadge(type) {
+  const map = { llama: 'LLaMA', qwen: 'Qwen' }
+  return map[type] || type
 }
 
 function formatDataSize(length) {

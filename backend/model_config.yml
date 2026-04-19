@@ -1,0 +1,34 @@
+# ============================================
+# 可用基础模型配置
+# ============================================
+# key: 模型标识（存储在数据库和前端使用）
+# value: 该模型的完整配置信息
+#
+# 各字段说明:
+#   hf_name      -> HuggingFace 模型名称或本地路径（训练和推理时加载用）
+#   display_name -> 前端展示名称
+#   type         -> 模型系列标识（如 llama / qwen），前端据此渲染徽章文字
+#   description  -> 前端模型卡片中的描述文案
+#   params       -> 参数量说明（如 "3B参数"），前端展示在规格行
+#   speed        -> 速度标签（如 "速度较快"），前端展示在规格行
+#   speed_value  -> 速度参考值（token/秒），前端估算训练时间时使用
+# ============================================
+
+base_models:
+  llama-2-3b:
+    hf_name: "openlm-research/open_llama_3b_v2"
+    display_name: "LLaMA-2-3B"
+    type: "llama"
+    description: "Meta开源的基础模型，性能均衡"
+    params: "3B参数"
+    speed: "速度较快"
+    speed_value: 800
+
+  qwen3-1.7b:
+    hf_name: "Qwen/Qwen3-1.7B"
+    display_name: "Qwen3-1.7B"
+    type: "qwen"
+    description: "阿里Qwen3系列，双模式推理，119种语言支持"
+    params: "1.7B参数"
+    speed: "轻量高效"
+    speed_value: 1000

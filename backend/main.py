@@ -12,6 +12,7 @@ from config import settings
 from app.models import init_db
 from app.routers import api_router
 from app.utils import setup_logging, get_logger
+from app.services.model_manager import model_manager
 
 # Setup logging
 setup_logging(
@@ -49,6 +50,11 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Application shutting down...")
+    try:
+        count = model_manager.unload_all()
+        logger.info(f"ModelManager unloaded {count} items on shutdown")
+    except Exception as e:
+        logger.error(f"ModelManager shutdown cleanup failed: {e}")
 
 
 # Create FastAPI app

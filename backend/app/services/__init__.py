@@ -4,6 +4,7 @@ from .inference import InferenceService, inference_service, get_inference_servic
 from .training import TrainingService, training_service
 from .preprocessing import DataPreprocessor, TextChunk
 from .evaluation import EvaluationService, evaluation_service
+from .model_manager import GlobalModelManager, model_manager
 
 __all__ = [
     "InferenceService",
@@ -15,4 +16,6 @@ __all__ = [
     "TextChunk",
     "EvaluationService",
     "evaluation_service",
+    "GlobalModelManager",
+    "model_manager",
 ]

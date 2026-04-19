@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, update
 
 from ..models import get_db, Style, Task
 from ..schemas import (
@@ -15,8 +15,9 @@ from ..schemas import (
     StyleUpdate,
     StyleResponse,
     StyleListItem,
+    BaseModelInfo,
 )
-from ..utils import get_logger
+from ..utils import get_logger, get_available_models
 
 router = APIRouter(prefix="/api/styles", tags=["styles"])
 logger = get_logger(__name__)
@@ -213,6 +214,15 @@ async def update_style(
     for field, value in update_data.items():
         setattr(style, field, value)
 
+    # 同步更新关联 tasks 的 name 字段
+    if "name" in update_data:
+        await db.execute(
+            update(Task)
+            .where(Task.style_id == style_id)
+            .values(name=update_data["name"])
+        )
+        logger.info(f"同步更新 tasks 名称: style_id={style_id}, name={update_data['name']}")
+
     await db.commit()
     await db.refresh(style)
 
@@ -318,5 +328,21 @@ async def delete_style(
             "deleted_files": deleted,
             "failed_deletions": failed
         },
+        timestamp=datetime.utcnow(),
+    )
+
+
+# ---- Models router (separate prefix) ----
+models_router = APIRouter(prefix="/api/models", tags=["models"])
+
+
+@models_router.get("", response_model=Response)
+async def list_base_models():
+    """List all available base models from YAML config."""
+    models = get_available_models()
+    return Response(
+        code=200,
+        message="success",
+        data=[BaseModelInfo.model_validate(m) for m in models],
         timestamp=datetime.utcnow(),
     )

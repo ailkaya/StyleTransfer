@@ -72,3 +72,15 @@ class StyleListItem(BaseModel):
         if v is not None:
             return str(v)
         return v
+
+
+class BaseModelInfo(BaseModel):
+    """Schema for available base model metadata."""
+
+    id: str
+    name: str
+    type: str
+    description: str
+    params: str
+    speed: str
+    speed_value: int = 0

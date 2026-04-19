@@ -5,6 +5,7 @@ import json
 import asyncio
 from datetime import datetime
 from celery import Celery
+from celery.signals import worker_process_shutdown
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 
@@ -21,6 +22,17 @@ celery_app.config_from_object("app.celery_app.celeryconfig")
 celery_app.conf.worker_mingle = False
 celery_app.conf.worker_gossip = False
 celery_app.conf.broker_heartbeat = 0
+
+
+@worker_process_shutdown.connect
+def _cleanup_models_on_worker_shutdown(**kwargs):
+    """Unload all models when Celery worker process shuts down."""
+    try:
+        from ..services.model_manager import model_manager
+        count = model_manager.unload_all()
+        logger.info(f"[Celery] ModelManager unloaded {count} items on worker shutdown")
+    except Exception as e:
+        logger.error(f"[Celery] ModelManager shutdown cleanup failed: {e}")
 
 # Logger
 logger = get_logger(__name__)

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # Training
     TRAINING_MOCK_MODE: bool = True
 
+    # Model Manager - GPU memory reservation ratio (0.15 ~ 0.20)
+    MODEL_RESERVED_GPU_RATIO: float = 0.18
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
