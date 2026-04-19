@@ -379,35 +379,58 @@ class TrainingService:
 
             # ========= tokenize + label mask =========
             def tokenize_fn(example):
-                text = example["text"]
-                
-                # 找到response开始的位置（根据你的模板设计）
-                response_start = text.find("<|response|>\n") + len("<|response|>\n")
-                
-                # tokenize prompt部分，计算长度
-                prompt_text = text[:response_start]
-                prompt_tokens = tokenizer(prompt_text, add_special_tokens=False)
-                prompt_len = len(prompt_tokens["input_ids"])
-                
-                # tokenize完整文本
-                tokenized = tokenizer(
-                    text,
-                    truncation=True,
-                    max_length=train_config["max_length"],
-                    padding="max_length",
+                messages = example["messages"]
+
+                if not hasattr(tokenizer, "apply_chat_template"):
+                    raise RuntimeError(
+                        "Tokenizer does not support apply_chat_template, "
+                        "which is required for chat-format training."
+                    )
+
+                # 完整 tokenize（不 truncation），用于计算 labels
+                full_input_ids = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=False,
                 )
-                
-                input_ids = tokenized["input_ids"]
-                labels = [-100] * len(input_ids)  # 先全部mask
-                
-                # 只保留response部分的labels
-                for i in range(prompt_len, len(input_ids)):
-                    if tokenized["attention_mask"][i] == 1:  # 非padding
-                        labels[i] = input_ids[i]
-                
+                full_labels = [-100] * len(full_input_ids)
+
+                # 逐条计算 cumulative token lengths，确定 assistant 部分范围
+                cum_lens = []
+                for i in range(len(messages) + 1):
+                    prefix_ids = tokenizer.apply_chat_template(
+                        messages[:i],
+                        tokenize=True,
+                        add_generation_prompt=False,
+                    )
+                    cum_lens.append(len(prefix_ids))
+
+                # 只保留 assistant 部分的 labels
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "assistant":
+                        start = cum_lens[i]
+                        end = cum_lens[i + 1]
+                        for j in range(start, end):
+                            full_labels[j] = full_input_ids[j]
+
+                # truncation 和 padding
+                max_len = train_config["max_length"]
+                attention_mask = [1] * len(full_input_ids)
+
+                if len(full_input_ids) > max_len:
+                    input_ids = full_input_ids[:max_len]
+                    labels = full_labels[:max_len]
+                    attention_mask = attention_mask[:max_len]
+                else:
+                    pad_len = max_len - len(full_input_ids)
+                    pad_token_id = tokenizer.pad_token_id
+                    input_ids = full_input_ids + [pad_token_id] * pad_len
+                    labels = full_labels + [-100] * pad_len
+                    attention_mask = attention_mask + [0] * pad_len
+
                 return {
                     "input_ids": input_ids,
-                    "attention_mask": tokenized["attention_mask"],
+                    "attention_mask": attention_mask,
                     "labels": labels,
                 }
 

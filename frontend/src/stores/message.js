@@ -57,28 +57,31 @@ export const useMessageStore = defineStore('message', () => {
         requirement: data.requirement,
         created_at: new Date().toISOString()
       }
-      messages.value.push(userMessage)
+      
+      // console.log('Messages:', messages.value)
 
-      // Build history from previous messages (exclude the one just added)
+      // Build history from previous messages
       const history = messages.value
-        .filter(m => m.style_id === styleId && m.id !== userMessage.id)
+        .filter(m => m.style_id === styleId)
         .map(m => ({
           role: m.role,
-          content: `metioned_text：${m.original_text},user_input:${m.requirement}`
+          content: m.role === 'user'
+            ? `metioned_text：${m.original_text || ''},user_input:${m.requirement}`
+            : m.content
         }))
 
-      console.log('History:', history)
-      // return null
+      messages.value.push(userMessage)
+      // console.log('History:', history)
 
       // Call API with history
       const response = await styleApi.sendMessage(styleId, {
         ...data,
         history: history.length > 0 ? history : undefined
       })
-
+      
       // Add assistant response
       messages.value.push(response.data.message)
-
+      // console.log('Response:', response.data)
       return response.data
     } catch (err) {
       error.value = err.message

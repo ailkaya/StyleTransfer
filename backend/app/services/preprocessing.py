@@ -584,24 +584,15 @@ B: {neutral}
     def to_sft_format(self, samples: List[Dict]) -> List[Dict]:
         data = []
         for s in samples:
-            text = f"""<|system|>
-{self.system_prompt}
-
-<|style_tag|>
-{self.style_tag}
-
-<|instruction|>
-{s["instruction"]}
-
-<|input|>
-{s["input"]}
-
-<|response|>
-{s["output"]}"""
+            user_content = f"{s['instruction']}\n{s['input']}"
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": s["output"]},
+            ]
             data.append({
-                "text": text,
+                "messages": messages,
                 "style_tag": self.style_tag,
-                "system": self.system_prompt,
                 "instruction": s["instruction"],
                 "input": s["input"],
                 "output": s["output"],
@@ -609,8 +600,14 @@ B: {neutral}
         return data
 
     def _extract_output_from_item(self, item: Dict) -> Optional[str]:
-        """从 formatted_data 中提取 output/response 内容。"""
-        return item.get("output") or None
+        """从 formatted_data 中提取 assistant 的 content 内容。"""
+        messages = item.get("messages")
+        if not messages:
+            return item.get("output") or None
+        for msg in messages:
+            if msg.get("role") == "assistant":
+                return msg.get("content")
+        return None
 
     def validate_and_split(self, data: List[Dict],
                           train_ratio: float = 0.95) -> Tuple[List[Dict], List[Dict], Dict]:
@@ -860,25 +857,25 @@ B: {neutral}
             # 解析 JSON 响应
             adjusted_raw = json.loads(response)
 
+            adjusted_system = adjusted_raw.get('system', system)
+            adjusted_instruction = adjusted_raw.get('instruction', instruction)
+            adjusted_input = adjusted_raw.get('input', input_text)
+            adjusted_output = adjusted_raw.get('output', output)
+
             adjusted = {
-                'system': adjusted_raw.get('system', system),
-                'instruction': adjusted_raw.get('instruction', instruction),
-                'input': adjusted_raw.get('input', input_text),
-                'output': adjusted_raw.get('output', output),
+                'system': adjusted_system,
+                'instruction': adjusted_instruction,
+                'input': adjusted_input,
+                'output': adjusted_output,
                 'metadata': sample.get('metadata', {})
             }
 
-            adjusted['text'] = f"""<|system|>
-{adjusted['system']}
-
-<|instruction|>
-{adjusted['instruction']}
-
-<|input|>
-{adjusted['input']}
-
-<|response|>
-{adjusted['output']}"""
+            user_content = f"{adjusted_instruction}\n{adjusted_input}"
+            adjusted['messages'] = [
+                {"role": "system", "content": adjusted_system},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": adjusted_output},
+            ]
 
             adjusted['metadata']['adjusted_by_comment'] = True
             return adjusted
