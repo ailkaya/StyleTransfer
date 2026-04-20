@@ -32,3 +32,12 @@ base_models:
     params: "1.7B参数"
     speed: "轻量高效"
     speed_value: 1000
+
+  glm-4-1.5b:
+    hf_name: "THUDM/glm-4-1.5b-chat"
+    display_name: "GLM-4-1.5B-Chat"
+    type: "glm"
+    description: "智谱AI第四代模型，中文推理与创作能力显著提升，支持多模态理解"
+    params: "1.5B参数"
+    speed: "推理增强"
+    speed_value: 1000

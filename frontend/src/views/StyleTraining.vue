@@ -469,7 +469,7 @@ const form = reactive({
   config: {
     learning_rate: 0.0002,
     num_epochs: 3,
-    batch_size: 4,
+    batch_size: 1,
     max_length: 512
   }
 })

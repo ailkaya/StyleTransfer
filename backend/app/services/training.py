@@ -28,7 +28,7 @@ class TrainingService:
 
             # ===== LoRA相关 =====
 
-            "lora_r": 16,
+            "lora_r": 8,
             # LoRA的秩（rank），决定低秩矩阵的维度
             # ↑ r → 模型表达能力更强（能学更复杂风格）
             # ↑ r → 显存占用增加、过拟合风险增加
@@ -40,7 +40,7 @@ class TrainingService:
             # ↑ alpha → LoRA更新对模型影响更大
             # 一般设置为 2 × r（如16→32）
 
-            "lora_dropout": 0.06,
+            "lora_dropout": 0.1,
             # LoRA层的dropout概率
             # 防止过拟合（尤其小数据集很重要）
             # 常用：0.05 ~ 0.1
@@ -56,7 +56,7 @@ class TrainingService:
 
             # ===== 学习率相关 =====
 
-            "learning_rate": 2e-4,
+            "learning_rate": 1e-4,
             # 初始学习率（LoRA训练通常比全参数训练大）
             # ↑ lr → 收敛更快，但可能震荡/不稳定
             # 推荐：
@@ -104,7 +104,7 @@ class TrainingService:
 
             # ===== 正则化 =====
 
-            "weight_decay": 0.01,
+            "weight_decay": 0.05,
             # 权重衰减（L2正则）
             # 防止模型过拟合
             # LoRA中作用较小，但建议保留
@@ -225,6 +225,7 @@ class TrainingService:
                 Trainer,
                 TrainerCallback,
                 DataCollatorForLanguageModeling,
+                EarlyStoppingCallback,
             )
             from peft import (
                 LoraConfig,
@@ -482,7 +483,10 @@ class TrainingService:
                 train_dataset=train_dataset,
                 eval_dataset=val_dataset,
                 data_collator=data_collator,
-                callbacks=[ProgressCallback(self, task_id, total_epochs, start_time, on_progress)]
+                callbacks=[
+                    ProgressCallback(self, task_id, total_epochs, start_time, on_progress),
+                    EarlyStoppingCallback(early_stopping_patience=2)
+                ]
             )
 
             trainer.train()
