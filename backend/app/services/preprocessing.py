@@ -179,7 +179,7 @@ class DataPreprocessor:
         logger.info(f"Saved cleaned text to cache: {path}")
 
     async def _extract_keywords(self, n: int = 50) -> List[str]:
-        library_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'keyword_library.json')
+        library_path = os.path.join(os.path.dirname(__file__), '..', '..', 'keyword_library.json')
         try:
             with open(library_path, 'r', encoding='utf-8') as f:
                 keyword_library = json.load(f)

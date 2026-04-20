@@ -83,11 +83,13 @@ npm run lint
 - `celery_app/` - Celery configuration and training tasks
 
 **Key Data Flow - Training**:
-1. Client POST `/api/tasks` creates task, sets status=PENDING
+1. Client POST `/api/tasks` creates task, sets status=PENDING, with raw training text
 2. Celery task `train_style_model.delay()` dispatched
-3. Worker updates progress via `update_task_progress()` → saves to database
-4. Client polls task status via GET `/api/tasks/{id}` to check progress
-5. Training simulation generates adapter files in `./models/adapters/`
+3. Preprocessing pipeline runs (clean text → extract style guide → generate 5 task type samples → format to SFT)
+4. `training_service.training_progress_true()` runs QLoRA fine-tuning on formatted samples
+5. Worker updates progress via `update_task_progress()` → saves to database
+6. Client polls task status via GET `/api/tasks/{id}` to check progress
+7. Trained adapter files saved to `./models/adapters/`
 
 **Key Data Flow - Style Transfer**:
 1. Client POST `/api/styles/{id}/messages` with source_text + requirements
@@ -123,11 +125,24 @@ See `backend/.env.example` for full template.
 
 ## Important Implementation Notes
 
-### v0.1 Placeholders
-Per `TODO_IMPLEMENTATION.md`, these features are simulated/placeholder:
-- **QLoRA Training**: `training_service.simulate_training_progress()` simulates epochs; actual training framework stubbed
-- **Local Model Inference**: Calls external API; local model inference framework stubbed
-- **Evaluation**: Returns placeholder HTML report
+### Mock vs Real Implementation
+Core features have both mock (simulated) and real implementations, toggled via environment variables:
+- **Training**: `training_service.simulate_training_progress()` (mock) vs `training_progress_true()` (real QLoRA). Controlled by `GENERATING_MOCK_MODE`
+- **Inference**: `generate_style_transfer_mock()` (external API) vs `generate_style_transfer_true()` (local LoRA with PEFT). Controlled by `GENERATING_MOCK_MODE`
+- **Evaluation**: `generate_evaluation_data_mock()` (random metrics) vs `generate_evaluation_data_true()` (BLEU, BERTScore, style match, fluency). Controlled by `EVALUATION_MOCK_MODE`
+
+When mock modes are disabled, the system performs actual QLoRA fine-tuning, local model inference, and real metric calculation.
+
+### Preprocessing Pipeline
+`preprocessing.py` is a key module for training data preparation:
+- **Step 1-2**: Semantic chunking → LLM-based text cleaning
+- **Step 2.5**: Style feature extraction (samples chunks, LLM generates `style_guide.md`)
+- **Step 2.6**: Keyword extraction from `cleaned_text` (jieba + preset `keyword_library.json`)
+- **Step 3-5**: Sentence split → Generate 5 task types:
+  - **Continuation**: chunk[i] → chunk[i+1] (direct, no LLM)
+  - **Generation/Explanation/Summarization**: LLM-driven with `style_guide`
+  - **Style Transfer**: neutral → styled via LLM with `style_guide`
+- All 4 LLM-intensive tasks run in parallel via `asyncio.gather()` with Rich progress bars
 
 ### Celery Worker Requirements
 Training tasks will hang at PENDING state if Celery worker is not running. Always ensure worker is started in a separate terminal.
