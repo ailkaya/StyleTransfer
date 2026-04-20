@@ -34,7 +34,7 @@ async def main():
     parser.add_argument("file_path", help="Path to the raw training text file")
     parser.add_argument("--output-dir", default="./test_output", help="Directory to save train.jsonl and val.jsonl")
     parser.add_argument("--style", default="鲁迅风格", help="Target style name")
-    parser.add_argument("--chunk-size", type=int, default=1024, help="Semantic chunk target length")
+    parser.add_argument("--chunk-size", type=int, default=128, help="Semantic chunk target length")
     parser.add_argument("--cache-dir", default="./cache/preprocess", help="Cache directory for preprocessing results")
     args = parser.parse_args()
     print(args, end='\n')
@@ -63,6 +63,7 @@ async def main():
         inference_service=inference_service,
         target_length=args.chunk_size,
         train_ratio=0.95,
+        skip_clean=True,
     )
 
     train_data = result["train_data"]
@@ -93,7 +94,7 @@ async def main():
     logger.info(f"  - Chunks: {metadata['chunk_count']}")
     logger.info(f"  - Sentences: {metadata['sentence_count']}")
     # logger.info(f"  - Continuation samples: {metadata['continuation_sample_count']}")
-    logger.info(f"  - Style samples: {metadata['style_sample_count']}")
+    # logger.info(f"  - Style samples: {metadata['style_sample_count']}")
     logger.info(f"  - Total samples: {metadata['sample_count']}")
     logger.info(f"  - Valid samples: {metadata['valid_samples']}")
     logger.info(f"  - Train samples: {len(train_data)}")
