@@ -28,6 +28,7 @@ aiofiles==23.2.1
 # Utilities
 python-dotenv==1.0.0
 jieba==0.42.1
+rich==13.7.0
 sacrebleu>=2.3.0
 bert-score>=0.3.13
 

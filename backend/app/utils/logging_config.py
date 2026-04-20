@@ -33,6 +33,9 @@ def setup_logging(
     logger = logging.getLogger()
     logger.setLevel(getattr(logging, log_level.upper()))
 
+    # Suppress noisy third-party library logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     # Clear existing handlers
     logger.handlers.clear()
 

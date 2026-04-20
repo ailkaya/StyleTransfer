@@ -5,10 +5,12 @@ import re
 import json
 import hashlib
 import random
+import asyncio
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Tuple, Optional
 
 from ..utils import get_logger
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn, TimeElapsedColumn, TimeRemainingColumn
 
 logger = get_logger(__name__)
 
@@ -515,7 +517,7 @@ class DataPreprocessor:
                 })
         return samples
 
-    async def generate_generation_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 50) -> List[Dict]:
+    async def generate_generation_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 50, progress=None, task_id=None) -> List[Dict]:
         """生成写作任务样本（LLM驱动）"""
         style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
         samples = []
@@ -544,11 +546,14 @@ class DataPreprocessor:
                 })
             except Exception as e:
                 logger.error(f"Generation sample failed for topic '{topic}': {e}")
+            finally:
+                if progress and task_id is not None:
+                    progress.update(task_id, advance=1)
 
         logger.info(f"Generation sample generation complete: {len(samples)} samples")
         return samples
 
-    async def generate_explanation_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 50) -> List[Dict]:
+    async def generate_explanation_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 50, progress=None, task_id=None) -> List[Dict]:
         """生成解释任务样本（LLM驱动）"""
         style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
         samples = []
@@ -583,11 +588,14 @@ class DataPreprocessor:
                 })
             except Exception as e:
                 logger.error(f"Explanation sample failed for concept '{concept}': {e}")
+            finally:
+                if progress and task_id is not None:
+                    progress.update(task_id, advance=1)
 
         logger.info(f"Explanation sample generation complete: {len(samples)} samples")
         return samples
 
-    async def generate_summarization_samples_llm(self, chunks: List[TextChunk], inference_service, style_guide: str, max_samples: int = 50) -> List[Dict]:
+    async def generate_summarization_samples_llm(self, chunks: List[TextChunk], inference_service, style_guide: str, max_samples: int = 50, progress=None, task_id=None) -> List[Dict]:
         """生成总结任务样本（LLM驱动）"""
         style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
         samples = []
@@ -621,6 +629,9 @@ class DataPreprocessor:
                 })
             except Exception as e:
                 logger.error(f"Summarization sample failed: {e}")
+            finally:
+                if progress and task_id is not None:
+                    progress.update(task_id, advance=1)
 
         logger.info(f"Summarization sample generation complete: {len(samples)} samples")
         return samples
@@ -715,7 +726,7 @@ B: {neutral}
 
         return True
 
-    async def generate_style_transfer_samples(self, sentences: List[str], inference_service, style_guide: str, max_samples: int = 100) -> List[Dict]:
+    async def generate_style_transfer_samples(self, sentences: List[str], inference_service, style_guide: str, max_samples: int = 100, progress=None, task_id=None) -> List[Dict]:
         """
         生成风格转换样本（LLM驱动，根据风格指南生成风格化表达）
         """
@@ -729,6 +740,8 @@ B: {neutral}
             neutral = await self._neutralize_text(original, inference_service)
             if not neutral:
                 logger.info(f"  -> Neutralization returned empty, skip")
+                if progress and task_id is not None:
+                    progress.update(task_id, advance=1)
                 continue
 
             # 正向样本：使用 LLM 根据风格指南生成风格化表达
@@ -753,15 +766,17 @@ B: {neutral}
                 })
             except Exception as e:
                 logger.error(f"Style transfer forward sample failed: {e}")
-                continue
 
             # 构造反向样本（30%概率）
-            if random.random() < 0.3:
+            if random.random() < 0.3 and neutral:
                 samples.append({
                     "instruction": "请将文本改写为中性表达，保持原意，不扩写。",
                     "input": original,
                     "output": neutral,
                 })
+
+            if progress and task_id is not None:
+                progress.update(task_id, advance=1)
 
         logger.info(f"Style transfer sample generation complete: {len(samples)} samples kept")
         return samples
@@ -844,7 +859,7 @@ B: {neutral}
 
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
-    async def process(self, raw_text: str, inference_service, target_length: int = 192,
+    async def process(self, raw_text: str, inference_service, target_length: int = 128,
                       train_ratio: float = 0.95, skip_clean: bool = False) -> Dict:
         """
         完整预处理流程
@@ -889,32 +904,59 @@ B: {neutral}
         keywords = await self._extract_keywords(n=400)
         logger.info(f"[Preprocessing] Step 2.6 completed: {len(keywords)} keywords extracted")
 
-        sentences_num = 5
-        continuation_samples_num = 5
-        generation_samples_num = 5
-        explanation_samples_num = 5
-        summarization_samples_num = 5
+        style_transfer_num = 500
+        continuation_samples_num = 250
+        generation_samples_num = 250
+        explanation_samples_num = 250
+        summarization_samples_num = 250
 
         # Step 3: 句子拆分（用于风格转换任务）
         sentences = []
         for chunk in chunks:
             chunk_sentences = self.sentence_split(chunk.content)
             sentences.extend(chunk_sentences)
-        sentences = random.sample(sentences, min(len(sentences), sentences_num))
+        sentences = random.sample(sentences, min(len(sentences), style_transfer_num))
         logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
         # Step 4: 生成续写样本（保持现有方案）
         continuation_samples = self.generate_continuation_samples(chunks[:continuation_samples_num])
         logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
 
-        # Step 4.5: 生成写作/解释/总结样本（LLM驱动）
-        generation_samples = await self.generate_generation_samples_llm(keywords, inference_service, style_guide, max_samples=generation_samples_num)
-        explanation_samples = await self.generate_explanation_samples_llm(keywords, inference_service, style_guide, max_samples=explanation_samples_num)
-        summarization_samples = await self.generate_summarization_samples_llm(chunks, inference_service, style_guide, max_samples=summarization_samples_num)
-        logger.info(f"[Preprocessing] Step 4.5 completed: {len(generation_samples)} generation / {len(explanation_samples)} explanation / {len(summarization_samples)} summarization samples")
+        # Step 4.5: 生成写作/解释/总结样本（LLM驱动，带进度条，并行处理）
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            gen_task = progress.add_task("[cyan]写作样本", total=min(len(keywords), generation_samples_num))
+            exp_task = progress.add_task("[green]解释样本", total=min(len(keywords), explanation_samples_num))
+            sum_task = progress.add_task("[yellow]总结样本", total=min(len(chunks), summarization_samples_num))
+            style_count = len(sentences)
+            style_task = progress.add_task("[magenta]风格转换", total=style_count)
 
-        # Step 5: 生成风格转换样本（LLM驱动）
-        style_samples = await self.generate_style_transfer_samples(sentences, inference_service, style_guide)
+            generation_samples, explanation_samples, summarization_samples, style_samples = await asyncio.gather(
+                self.generate_generation_samples_llm(
+                    keywords, inference_service, style_guide,
+                    max_samples=generation_samples_num, progress=progress, task_id=gen_task
+                ),
+                self.generate_explanation_samples_llm(
+                    keywords, inference_service, style_guide,
+                    max_samples=explanation_samples_num, progress=progress, task_id=exp_task
+                ),
+                self.generate_summarization_samples_llm(
+                    chunks, inference_service, style_guide,
+                    max_samples=summarization_samples_num, progress=progress, task_id=sum_task
+                ),
+                self.generate_style_transfer_samples(
+                    sentences, inference_service, style_guide,
+                    max_samples=style_count, progress=progress, task_id=style_task
+                ),
+            )
+
+        logger.info(f"[Preprocessing] Step 4.5 completed: {len(generation_samples)} generation / {len(explanation_samples)} explanation / {len(summarization_samples)} summarization samples")
         logger.info(f"[Preprocessing] Step 5 completed: {len(style_samples)} style transfer samples generated")
 
         all_samples = continuation_samples + generation_samples + explanation_samples + summarization_samples + style_samples
