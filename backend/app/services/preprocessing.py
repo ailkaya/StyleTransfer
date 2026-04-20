@@ -659,7 +659,7 @@ B: {neutral}
 
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
-    async def process(self, raw_text: str, inference_service, target_length: int = 512,
+    async def process(self, raw_text: str, inference_service, target_length: int = 256,
                       train_ratio: float = 0.95) -> Dict:
         """
         完整预处理流程
@@ -684,7 +684,7 @@ B: {neutral}
         logger.info("[Preprocessing] Step 0 completed: no cache found, proceeding with processing")
 
         # Step 1: 对原始文本进行语义分块（overlap=0，防止数据过大）
-        raw_chunks = self.semantic_chunking(raw_text, target_length, overlap=0)
+        raw_chunks = self.semantic_chunking(text=raw_text, overlap=0)
         raw_chunks = raw_chunks[:min(len(raw_chunks), 240)]
         logger.info(f"[Preprocessing] Step 1 completed: {len(raw_chunks)} raw chunks generated")
 
@@ -697,20 +697,20 @@ B: {neutral}
         for chunk in chunks:
             chunk_sentences = self.sentence_split(chunk.content)
             sentences.extend(chunk_sentences)
-        sentences = sentences[:min(len(sentences), 600)]
+        sentences = random.sample(sentences, min(len(sentences), 500))
         logger.info(f"[Preprocessing] Step 3 completed: {len(sentences)} sentences extracted")
 
         # Step 4: 生成续写样本
-        # continuation_samples = self.generate_continuation_samples(chunks)
-        # logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
+        continuation_samples = self.generate_continuation_samples(chunks)
+        logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated")
 
         # Step 5: 生成风格转换样本（LLM增强）
         style_samples = await self.generate_style_transfer_samples(sentences, inference_service)
         logger.info(f"[Preprocessing] Step 5 completed: {len(style_samples)} style transfer samples generated")
 
-        # all_samples = continuation_samples + style_samples
+        all_samples = continuation_samples + style_samples
 
-        all_samples = style_samples
+        # all_samples = style_samples
 
         # Step 6: 转换为SFT格式
         formatted_data = self.to_sft_format(all_samples)

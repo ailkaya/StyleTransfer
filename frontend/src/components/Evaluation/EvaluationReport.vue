@@ -120,7 +120,7 @@
           <p class="metric-desc">转换后文本的通顺程度</p>
         </div>
 
-        <div class="metric-item">
+        <!-- <div class="metric-item">
           <div class="metric-header">
             <span class="metric-name">字符保留率</span>
             <span class="metric-value" :class="getScoreClass(data.char_retention)">
@@ -132,7 +132,7 @@
                  :style="{ width: data.char_retention + '%' }"></div>
           </div>
           <p class="metric-desc">原文字符在转换后的保留比例</p>
-        </div>
+        </div> -->
 
         <div class="metric-item">
           <div class="metric-header">

@@ -11,14 +11,13 @@ DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/style_tran
 
 logger = logging.getLogger(__name__)
 
-# Create async engine with connection pool for better performance
+# Create async engine with NullPool to avoid "attached to a different loop" errors
+# when async connections are used across different event loops (FastAPI vs Celery).
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,           # Base number of connections
-    max_overflow=20,        # Extra connections when needed
-    pool_pre_ping=True,     # Verify connections before using
-    pool_recycle=3600,      # Recycle connections after 1 hour
+    poolclass=NullPool,
+    pool_pre_ping=True,
 )
 
 # Create async session factory

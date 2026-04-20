@@ -40,7 +40,7 @@ class TrainingService:
             # ↑ alpha → LoRA更新对模型影响更大
             # 一般设置为 2 × r（如16→32）
 
-            "lora_dropout": 0.1,
+            "lora_dropout": 0.12,
             # LoRA层的dropout概率
             # 防止过拟合（尤其小数据集很重要）
             # 常用：0.05 ~ 0.1
@@ -461,7 +461,7 @@ class TrainingService:
                 logging_steps=train_config["logging_steps"],
                 logging_strategy="steps",
 
-                save_strategy="epoch",
+                save_strategy="best",
                 save_total_limit=train_config["save_total_limit"],
 
                 bf16=True,
@@ -473,20 +473,27 @@ class TrainingService:
                 eval_strategy=train_config["eval_strategy"],
                 eval_steps=train_config["eval_steps"],
 
+                metric_for_best_model="eval_loss",
+                load_best_model_at_end=True,
+                greater_is_better=False,
+
                 report_to=[],
             )
 
             # ========= Trainer =========
+            callbacks = [
+                ProgressCallback(self, task_id, total_epochs, start_time, on_progress),
+            ]
+            if len(val_dataset) > 0:
+                callbacks.append(EarlyStoppingCallback(early_stopping_patience=2))
+
             trainer = Trainer(
                 model=model,
                 args=args,
                 train_dataset=train_dataset,
-                eval_dataset=val_dataset,
+                eval_dataset=val_dataset if len(val_dataset) > 0 else None,
                 data_collator=data_collator,
-                callbacks=[
-                    ProgressCallback(self, task_id, total_epochs, start_time, on_progress),
-                    EarlyStoppingCallback(early_stopping_patience=2)
-                ]
+                callbacks=callbacks,
             )
 
             trainer.train()

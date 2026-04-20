@@ -309,12 +309,10 @@ def calculate_metrics(
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
     overall = (
-        bleu_score * 0.15 +
-        bert_score * 0.4 +
-        avg_style * 0.15 +
-        avg_fluency * 0.15 +
-        min(vocab_diversity, 100) * 0.075 +
-        (100 - abs(length_ratio - 100)) * 0.075
+        bleu_score * 0.2 +
+        bert_score * 0.6 +
+        avg_style * 0.1 +
+        avg_fluency * 0.1
     )
 
     return EvaluationMetrics(
@@ -355,8 +353,7 @@ async def generate_test_samples(
 ) -> List[str]:
     """Generate diverse test samples using LLM API."""
     topics = [
-        "日常生活", "工作职场", "教育培训",
-        "文化娱乐", "商业经济", "社会热点", "个人成长"
+        "日常生活", "文化娱乐", "社会热点", "个人成长"
     ]
 
     prompts = [

@@ -8,6 +8,7 @@ from .style import (
     StyleInDB,
     StyleResponse,
     StyleListItem,
+    BaseModelInfo,
 )
 from .task import (
     TrainingConfig,
@@ -39,6 +40,7 @@ __all__ = [
     "StyleInDB",
     "StyleResponse",
     "StyleListItem",
+    "BaseModelInfo",
     # Task
     "TrainingConfig",
     "TaskCreate",

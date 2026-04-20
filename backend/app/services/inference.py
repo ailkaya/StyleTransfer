@@ -32,7 +32,6 @@ class InferenceService:
         self.client = None
         self.model_name = None
 
-        self._init_client()
         """Initialize OpenAI client from config."""
         from config import settings
 
