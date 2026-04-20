@@ -374,8 +374,7 @@ async def generate_test_samples(
 
         try:
             response = await inference_service.generate_style_transfer(
-                original_text=prompt,
-                requirement="生成一段自然的、多样化的文本内容",
+                input=prompt,
                 target_style="标准",
                 style_id=style_id,
                 use_api=True,
@@ -407,8 +406,7 @@ async def generate_transferred_texts(
 
         try:
             result = await inference_service.generate_style_transfer(
-                original_text=source,
-                requirement=f"请把给定的文本转换为{target_style}风格，不要增加原文没有的含义，不要对输出进行解释，不要输出除了转化结果以外的东西。",
+                input=f"请把给定的文本转换为{target_style}风格，不要增加原文没有的含义，不要对输出进行解释，不要输出除了转化结果以外的东西。\n\n{source}",
                 target_style=target_style,
                 style_id=style_id,
             )

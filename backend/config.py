@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/style_transfer"
-    SYNC_DATABASE_URL: Optional[str] = "postgresql://postgres:postgres@localhost:5432/style_transfer"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/style_transfer"
+    SYNC_DATABASE_URL: Optional[str] = "postgresql://postgres:postgres@127.0.0.1:5432/style_transfer"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

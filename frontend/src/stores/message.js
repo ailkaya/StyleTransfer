@@ -52,22 +52,16 @@ export const useMessageStore = defineStore('message', () => {
         id: Date.now(),
         style_id: styleId,
         role: 'user',
-        content: data.requirement,
-        original_text: data.original_text,
-        requirement: data.requirement,
+        content: data.input,
         created_at: new Date().toISOString()
       }
-      
-      // console.log('Messages:', messages.value)
 
       // Build history from previous messages
       const history = messages.value
         .filter(m => m.style_id === styleId)
         .map(m => ({
           role: m.role,
-          content: m.role === 'user'
-            ? `metioned_text：${m.original_text || ''},user_input:${m.requirement}`
-            : m.content
+          content: m.content
         }))
 
       messages.value.push(userMessage)
@@ -75,7 +69,7 @@ export const useMessageStore = defineStore('message', () => {
 
       // Call API with history
       const response = await styleApi.sendMessage(styleId, {
-        ...data,
+        input: data.input,
         history: history.length > 0 ? history : undefined
       })
       

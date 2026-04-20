@@ -860,7 +860,7 @@ B: {neutral}
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
     async def process(self, raw_text: str, inference_service, target_length: int = 128,
-                      train_ratio: float = 0.95, skip_clean: bool = False) -> Dict:
+                      train_ratio: float = 0.9, skip_clean: bool = False) -> Dict:
         """
         完整预处理流程
 

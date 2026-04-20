@@ -58,32 +58,13 @@ class InferenceService:
 
     def _generate_system_prompt(self, style_tag: str) -> str:
         """根据风格配置生成系统提示词"""
-        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点，请按照<|instruction|>中的要求并结合<|input|>进行回复。不要使用深度思考。"
-
-    def _build_prompt(
-        self,
-        original_text: str,
-        requirement: str,
-        target_style: str,
-    ) -> str:
-        """Build the prompt for style transfer."""
-        prompt = f"""
-<|style_tag|>
-{target_style}
-
-<|instruction|>
-{requirement}
-
-<|input|>
-{original_text}
-"""
-        return prompt
+        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。请根据用户要求生成文本，保持该风格的一致性。不要使用深度思考。"
 
     def _build_messages_with_history(
         self,
         system_prompt: str,
         history: Optional[List[ChatMessage]],
-        current_prompt: str,
+        current_input: str,
     ) -> List[Dict]:
         """Build chat messages with history collapsed into a single context string.
 
@@ -102,11 +83,11 @@ class InferenceService:
             full_system += (
                 f"\n\n===== 以下是你的历史对话记录，仅供参考 =====\n"
                 f"{history_text}\n"
-                f"===== 历史记录结束，请仅处理下面的【当前请求】 ====="
+                f"===== 历史记录结束，请仅处理下面的用户输入 ====="
             )
 
         messages.append({"role": "system", "content": full_system})
-        messages.append({"role": "user", "content": f"【当前请求】\n{current_prompt}"})
+        messages.append({"role": "user", "content": current_input})
 
         return messages
 
@@ -196,8 +177,7 @@ class InferenceService:
 
     async def generate_style_transfer(
         self,
-        original_text: str,
-        requirement: str,
+        input: str,
         target_style: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
@@ -207,14 +187,12 @@ class InferenceService:
         logger.info(f"[Generate] Starting generate, mock_mode: {GENERATING_MOCK_MODE}, use_api: {use_api}")
         if GENERATING_MOCK_MODE or use_api:
             return await self.generate_style_transfer_mock(
-                original_text=original_text,
-                requirement=requirement,
+                input=input,
                 target_style=target_style,
                 history=history,
             )
         return await self.generate_style_transfer_true(
-            original_text=original_text,
-            requirement=requirement,
+            input=input,
             target_style=target_style,
             history=history,
             style_id=style_id,
@@ -222,8 +200,7 @@ class InferenceService:
 
     async def generate_style_transfer_true(
         self,
-        original_text: str,
-        requirement: str,
+        input: str,
         target_style: str,
         history: Optional[List[ChatMessage]] = None,
         style_id: Optional[str] = None,
@@ -232,8 +209,7 @@ class InferenceService:
         Generate style-transferred text using local model with LoRA adapter.
 
         Args:
-            original_text: Original text to transform
-            requirement: Specific transformation requirements
+            input: User input text
             target_style: Target style name
             history: Optional chat history for context
             style_id: Style ID for loading LoRA adapter
@@ -271,7 +247,7 @@ class InferenceService:
             messages = self._build_messages_with_history(
                 system_prompt=self._generate_system_prompt(style_tag=target_style),
                 history=history,
-                current_prompt=self._build_prompt(original_text, requirement, target_style),
+                current_input=input,
             )
 
             # Format messages into a single string for generation
@@ -331,8 +307,7 @@ class InferenceService:
 
     async def generate_style_transfer_mock(
         self,
-        original_text: str,
-        requirement: str,
+        input: str,
         target_style: str,
         history: Optional[List[ChatMessage]] = None,
     ) -> str:
@@ -340,8 +315,7 @@ class InferenceService:
         Generate style-transferred text using external LLM API.
 
         Args:
-            original_text: Original text to transform
-            requirement: Specific transformation requirements
+            input: User input text
             target_style: Target style name
             history: Optional chat history for context
 
@@ -364,7 +338,7 @@ class InferenceService:
         messages = self._build_messages_with_history(
             system_prompt=self._generate_system_prompt(target_style),
             history=history,
-            current_prompt=self._build_prompt(original_text, requirement, target_style),
+            current_input=input,
         )
 
         try:

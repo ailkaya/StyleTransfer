@@ -44,8 +44,8 @@
               <div class="welcome-icon">
                 <el-icon :size="64"><ChatRound /></el-icon>
               </div>
-              <h2>开始风格转换</h2>
-              <p>输入原文和转换需求，AI将为您生成目标风格的文本</p>
+              <h2>开始创作</h2>
+              <p>输入您的需求，AI将以目标风格为您生成文本</p>
               <div class="quick-tips">
                 <div class="tip-item">
                   <el-icon><Document /></el-icon>
@@ -74,7 +74,7 @@
               <template v-if="msg.role === 'user'">
                 <div class="message-bubble user-bubble">
                   <div class="user-content">
-                    {{ msg.original_text + "\n<" + msg.requirement + ">" }}
+                    {{ msg.content }}
                   </div>
                   <div class="message-meta">
                     <span class="message-time">{{ formatTime(msg.created_at) }}</span>
@@ -128,12 +128,11 @@
         <div class="input-panel">
           <div class="input-container">
             <div class="input-row">
-              <!-- Original Text Input -->
               <div class="input-column">
                 <div class="field-header">
                   <span class="field-label">
-                    <el-icon><Document /></el-icon>
-                    原文
+                    <el-icon><EditPen /></el-icon>
+                    输入
                   </span>
                   <div class="field-actions">
                     <el-upload
@@ -147,33 +146,19 @@
                         上传
                       </el-button>
                     </el-upload>
-                    <span class="char-count">{{ originalText.length }}</span>
+                    <span class="char-count">{{ input.length }}</span>
                   </div>
                 </div>
                 <el-input
-                  v-model="originalText"
+                  v-model="input"
                   type="textarea"
-                  :rows="3"
-                  placeholder="输入原文..."
-                  resize="none"
-                  class="custom-textarea"
-                />
-              </div>
-
-              <!-- Requirement Input -->
-              <div class="input-column">
-                <div class="field-header">
-                  <span class="field-label">
-                    <el-icon><EditPen /></el-icon>
-                    需求
-                  </span>
-                  <span class="char-count">{{ requirement.length }}</span>
-                </div>
-                <el-input
-                  v-model="requirement"
-                  type="textarea"
-                  :rows="3"
-                  placeholder="输入转换需求..."
+                  :rows="5"
+                  placeholder="请输入您的需求，例如：
+- 续写：请续写以下内容：夕阳西下，...
+- 风格转换：将以下文字转换为目标风格：...
+- 写作：请写一段关于「故乡」的文字
+- 解释：请解释什么是「存在主义」
+- 总结：请总结以下内容：..."
                   resize="none"
                   class="custom-textarea"
                 />
@@ -279,8 +264,7 @@ watch(() => styleStore.availableStyles.length, (newLength) => {
     }
   }
 })
-const originalText = ref('')
-const requirement = ref('')
+const input = ref('')
 const messagesContainer = ref(null)
 
 const currentStyle = computed(() =>
@@ -289,7 +273,7 @@ const currentStyle = computed(() =>
 
 const canSend = computed(() =>
   selectedStyleId.value &&
-  requirement.value.trim() &&
+  input.value.trim() &&
   !messageStore.sending
 )
 
@@ -309,14 +293,12 @@ async function sendMessage() {
   if (!canSend.value) return
 
   const data = {
-    original_text: originalText.value.trim(),
-    requirement: requirement.value.trim()
+    input: input.value.trim()
   }
 
   try {
     await messageStore.sendMessage(selectedStyleId.value, data)
-    originalText.value = ''
-    requirement.value = ''
+    input.value = ''
     nextTick(() => scrollToBottom())
   } catch (error) {
     ElMessage.error(error.message)
@@ -360,7 +342,7 @@ function copyText(text) {
 function handleFileChange(file) {
   const reader = new FileReader()
   reader.onload = (e) => {
-    originalText.value = e.target.result
+    input.value = e.target.result
     ElMessage.success('文件读取成功')
   }
   reader.onerror = () => {
@@ -781,7 +763,7 @@ watch(() => messageStore.messages.length, () => {
 
 .input-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-bottom: 12px;
 }

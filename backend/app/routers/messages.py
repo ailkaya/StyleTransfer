@@ -12,7 +12,6 @@ from ..schemas import (
     Response,
     MessageCreate,
     MessageResponse,
-    StyleTransferRequest,
 )
 from ..services import inference_service
 from ..utils import get_logger
@@ -117,8 +116,7 @@ async def create_message(
     try:
         logger.info(f"Calling inference service for style transfer")
         response_text = await inference_service.generate_style_transfer(
-            original_text=message_data.original_text,
-            requirement=message_data.requirement,
+            input=message_data.input,
             target_style=style.target_style,
             history=message_data.history,
             style_id=style_id,
@@ -142,9 +140,9 @@ async def create_message(
     user_message = Message(
         style_id=style_id,
         role="user",
-        content=message_data.requirement,
-        original_text=message_data.original_text,
-        requirement=message_data.requirement,
+        content=message_data.input,
+        original_text=message_data.input,
+        requirement="",
     )
     db.add(user_message)
 
@@ -154,12 +152,9 @@ async def create_message(
         style_id=style_id,
         role="assistant",
         content=response_text,
-        original_text=message_data.original_text,
-        requirement=message_data.requirement,
-        meta_data={
-            "original_text": message_data.original_text,
-            "requirement": message_data.requirement,
-        }
+        original_text=message_data.input,
+        requirement="",
+        meta_data={"input": message_data.input}
     )
     db.add(assistant_message)
     await db.commit()

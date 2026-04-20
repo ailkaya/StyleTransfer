@@ -7,7 +7,7 @@ from sqlalchemy.pool import NullPool
 
 # Database URL - PostgreSQL with async driver
 # Format: postgresql+asyncpg://user:password@host:port/database
-DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/style_transfer"
+DATABASE_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/style_transfer"
 
 logger = logging.getLogger(__name__)
 

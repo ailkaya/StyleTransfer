@@ -15,8 +15,7 @@ class ChatMessage(BaseModel):
 class MessageCreate(BaseModel):
     """Schema for creating a new message (style transfer request)."""
 
-    original_text: str = Field(default="", description="原文内容")
-    requirement: str = Field(..., min_length=1, description="转换需求")
+    input: str = Field(..., min_length=1, description="用户输入")
     history: Optional[List[ChatMessage]] = Field(default=None, description="历史对话")
 
 
@@ -63,8 +62,7 @@ class MessageListItem(BaseModel):
 class StyleTransferRequest(BaseModel):
     """Schema for style transfer request."""
 
-    original_text: str = Field(..., description="原文内容")
-    requirement: str = Field(..., description="转换需求")
+    input: str = Field(..., description="用户输入")
     style_id: str = Field(..., description="目标风格ID")
 
 

@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 # Sync database setup for Celery
 SYNC_DATABASE_URL = os.getenv(
     "SYNC_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/style_transfer"
+    "postgresql://postgres:postgres@127.0.0.1:5432/style_transfer"
 )
 
 _sync_engine = None

@@ -56,26 +56,29 @@ async def list_styles(
     result = await db.execute(query)
     styles = result.scalars().all()
 
-    # Fetch latest task status for each style
+    # Batch fetch latest task status for all styles (avoid N+1 query)
+    style_ids = [s.id for s in styles]
+    latest_task_map = {}
+    if style_ids:
+        task_result = await db.execute(
+            select(Task.style_id, Task.status)
+            .where(Task.style_id.in_(style_ids))
+            .order_by(Task.style_id, Task.created_at.desc())
+        )
+        for row in task_result.all():
+            if row.style_id not in latest_task_map:
+                latest_task_map[row.style_id] = row.status
+
+    # Build response items
     style_items = []
     for style in styles:
-        # Get latest task for this style
-        task_result = await db.execute(
-            select(Task)
-            .where(Task.style_id == style.id)
-            .order_by(Task.created_at.desc())
-            .limit(1)
-        )
-        latest_task = task_result.scalar_one_or_none()
-
-        # Build item with task_status
         item_data = {
             "id": str(style.id),
             "name": style.name,
             "description": style.description,
             "target_style": style.target_style,
             "status": style.status,
-            "task_status": latest_task.status if latest_task else None,
+            "task_status": latest_task_map.get(style.id),
             "created_at": style.created_at,
         }
         style_items.append(StyleListItem.model_validate(item_data))
