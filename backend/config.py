@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     # Training
     TRAINING_MOCK_MODE: bool = True
+    TRAINING_USE_CHUNK_DATA: bool = True
 
     # Model Manager - GPU memory reservation ratio (0.15 ~ 0.20)
     MODEL_RESERVED_GPU_RATIO: float = 0.18

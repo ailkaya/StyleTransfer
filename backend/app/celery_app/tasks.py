@@ -13,6 +13,7 @@ from ..models import Task, Style, Evaluation
 from ..services import training_service, evaluation_service, get_inference_service, DataPreprocessor
 from ..utils import get_logger
 from ..db_operations import DatabaseOperations
+from config import settings
 
 # Create Celery app
 celery_app = Celery("style_transfer")
@@ -204,7 +205,9 @@ def train_style_model(
         logger.info("Step 1: Preprocessing training text with DataPreprocessor...")
 
         # Initialize preprocessor with style config
-        preprocessor = DataPreprocessor(style_config=style_config)
+        preprocessor = DataPreprocessor(
+            style_config=style_config,
+        )
 
         # Run full preprocessing pipeline
         inference_service = get_inference_service()
@@ -254,8 +257,6 @@ def train_style_model(
         with open(os.path.join(output_dir, "metadata.json"), 'w', encoding='utf-8') as f:
             json.dump(preprocessed['metadata'], f, ensure_ascii=False, indent=2)
         logger.info(f"  - Saved training data to: {output_dir}")
-
-        # return
 
         # Save training data path to database
         try:
