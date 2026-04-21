@@ -129,6 +129,7 @@ async def create_task(
         config=config_dict,
         current_epoch=0,
         total_epochs=config_dict.get("num_epochs", 3),
+        parent_style_id=task_data.parent_style_id,
     )
 
     db.add(new_task)

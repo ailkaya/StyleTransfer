@@ -469,6 +469,50 @@ class DatabaseOperations:
                 self.session.rollback()
             return False
 
+    def update_task_training_text_path(self, task_id: str, training_text_path: str) -> bool:
+        """Update task raw training text file path."""
+        try:
+            task = self.get_task(task_id)
+            if task:
+                task.training_text_path = training_text_path
+                if self._owns_session:
+                    self.session.commit()
+                logger.info(f"Task {task_id} training_text_path updated: {training_text_path}")
+                return True
+            else:
+                logger.warning(f"Task {task_id} not found")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to update task {task_id} training_text_path: {e}")
+            if self._owns_session:
+                self.session.rollback()
+            return False
+
+    def update_task_parent_style_id(self, task_id: str, parent_style_id: Optional[str]) -> bool:
+        """Update task parent_style_id."""
+        try:
+            task = self.get_task(task_id)
+            if task:
+                task.parent_style_id = parent_style_id
+                if self._owns_session:
+                    self.session.commit()
+                logger.info(f"Task {task_id} parent_style_id updated: {parent_style_id}")
+                return True
+            else:
+                logger.warning(f"Task {task_id} not found")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to update task {task_id} parent_style_id: {e}")
+            if self._owns_session:
+                self.session.rollback()
+            return False
+
+    def get_non_terminal_tasks(self) -> List[Task]:
+        """Get all tasks that are not in a terminal state (COMPLETED or FAILED)."""
+        stmt = select(Task).where(Task.status.notin_(["COMPLETED", "FAILED"]))
+        result = self.session.execute(stmt)
+        return result.scalars().all()
+
     def get_task_count(self, style_id: Optional[str] = None, status: Optional[str] = None) -> int:
         """Count tasks, optionally filtered by style and/or status."""
         stmt = select(func.count()).select_from(Task)

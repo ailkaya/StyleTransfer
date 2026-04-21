@@ -67,6 +67,16 @@ class Task(Base):
         nullable=True,
         comment="训练数据文件路径"
     )
+    training_text_path: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="原始训练文本临时文件路径"
+    )
+    parent_style_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        nullable=True,
+        comment="父风格ID（用于继续训练和恢复）"
+    )
     error_message: Mapped[str] = mapped_column(
         Text,
         nullable=True,

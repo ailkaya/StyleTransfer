@@ -200,6 +200,21 @@ def train_style_model(
         logger.warning(f"Failed to get style config: {e}")
         return
 
+    training_text_path = None
+
+    # Persist raw training text to temp file before preprocessing
+    try:
+        training_text_dir = "./training_text"
+        os.makedirs(training_text_dir, exist_ok=True)
+        training_text_path = os.path.join(training_text_dir, f"{task_id}.txt")
+        with open(training_text_path, 'w', encoding='utf-8') as f:
+            f.write(training_text)
+        db.update_task_training_text_path(task_id, training_text_path)
+        db.update_task_parent_style_id(task_id, parent_style_id)
+        logger.info(f"Saved training_text to {training_text_path}")
+    except Exception as e:
+        logger.error(f"Failed to persist training_text for task {task_id}: {e}")
+
     try:
         # Preprocess training text using DataPreprocessor
         logger.info("Step 1: Preprocessing training text with DataPreprocessor...")
@@ -351,4 +366,56 @@ def train_style_model(
         }
     finally:
         # Close database session
+        db.close()
+        # Delete temporary training text file if it exists
+        if training_text_path and os.path.exists(training_text_path):
+            try:
+                os.remove(training_text_path)
+                logger.info(f"Removed training_text temp file: {training_text_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove training_text temp file: {e}")
+
+
+def recover_pending_tasks():
+    """Recover and re-dispatch non-terminal training tasks on startup."""
+    db = DatabaseOperations()
+    try:
+        tasks = db.get_non_terminal_tasks()
+        if not tasks:
+            logger.info("No non-terminal tasks to recover")
+            return
+
+        logger.info(f"Found {len(tasks)} non-terminal tasks to recover")
+        for task in tasks:
+            task_id = str(task.id)
+            style_id = str(task.style_id)
+
+            training_text_path = task.training_text_path
+            if not training_text_path or not os.path.exists(training_text_path):
+                logger.warning(
+                    f"Task {task_id} training_text not found at {training_text_path}, marking FAILED"
+                )
+                db.update_task_result(task_id, error="Training text temp file missing on recovery")
+                continue
+
+            with open(training_text_path, 'r', encoding='utf-8') as f:
+                training_text = f.read()
+
+            db.update_task_status(task_id, "PENDING")
+            db.update_style_status(style_id, "pending", None)
+
+            config = task.config or {}
+            parent_style_id = task.parent_style_id
+            train_style_model.delay(
+                task_id=task_id,
+                style_id=style_id,
+                training_text=training_text,
+                config=config,
+                parent_style_id=parent_style_id,
+            )
+            logger.info(f"Re-dispatched recovered task {task_id} (style={style_id})")
+
+    except Exception as e:
+        logger.error(f"Task recovery failed: {e}", exc_info=True)
+    finally:
         db.close()

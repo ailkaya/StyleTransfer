@@ -13,6 +13,7 @@ from app.models import init_db
 from app.routers import api_router
 from app.utils import setup_logging, get_logger
 from app.services.model_manager import model_manager
+from app.celery_app.tasks import recover_pending_tasks
 
 # Setup logging
 setup_logging(
@@ -45,6 +46,14 @@ async def lifespan(app: FastAPI):
         raise
 
     logger.info(f"CORS Origins: {settings.get_cors_origins()}")
+
+    # Recover any non-terminal training tasks from previous sessions
+    logger.info("Checking for pending tasks to recover...")
+    try:
+        recover_pending_tasks()
+    except Exception as e:
+        logger.error(f"Failed to recover pending tasks: {e}")
+
     logger.info("Application startup complete")
     yield
 
