@@ -57,7 +57,7 @@ class DataPreprocessor:
 
     def _get_cache_key(self, raw_text: str) -> str:
         """基于 raw_text 和 style_tag 计算缓存 key"""
-        content = f"{self.style_tag}:{self.use_chunk_data}:{raw_text}"
+        content = f"{self.style_tag}:{raw_text}"
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
     def _get_cache_path(self, raw_text: str) -> str:

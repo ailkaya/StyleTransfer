@@ -73,3 +73,4 @@ logs/
 /backend/test_preprocessing.py
 /backend/test.py
 /backend/run.sh
+/backend/training_text

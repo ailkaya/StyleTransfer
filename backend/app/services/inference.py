@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 from config import settings
 
 GENERATING_MOCK_MODE = settings.GENERATING_MOCK_MODE
+ENABLE_MESSAGE_HISTORY = settings.ENABLE_MESSAGE_HISTORY
 
 # Local model imports (transformers + peft for LoRA adapter)
 try:
@@ -75,7 +76,7 @@ class InferenceService:
         messages = []
 
         full_system = system_prompt
-        if history:
+        if history and ENABLE_MESSAGE_HISTORY:
             history_parts = []
             for i, msg in enumerate(history, 1):
                 history_parts.append(f"[对话记录 {i}] {msg.content}")
