@@ -1085,6 +1085,11 @@ B: {neutral}
             chunks, cleaned_text = self.semantic_chunking(text=raw_text, target_length=target_length, overlap=0), raw_text
         logger.info(f"[Preprocessing] Step 2 completed: {len(chunks)} chunks cleaned")
 
+        if len(chunks) < 50:
+            use_chunk_data = False 
+        else:
+            use_chunk_data = self.use_chunk_data
+
         # Step 2.5: 提取风格特征
         style_guide = await self._extract_style_guide(chunks, inference_service)
         logger.info(f"[Preprocessing] Step 2.5 completed: style guide extracted ({len(style_guide)} chars)")
@@ -1099,7 +1104,7 @@ B: {neutral}
         explanation_samples_num = 250
         summarization_samples_num = 250
 
-        if self.use_chunk_data:
+        if use_chunk_data:
             # Step 3: 句子拆分（用于风格转换任务）
             sentences = []
             for chunk in chunks:
