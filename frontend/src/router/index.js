@@ -3,6 +3,7 @@ import StyleTransfer from '@/views/StyleTransfer.vue'
 import StyleTraining from '@/views/StyleTraining.vue'
 import Evaluation from '@/views/Evaluation.vue'
 import StyleManagement from '@/views/StyleManagement.vue'
+import SystemMonitoring from '@/views/SystemMonitoring.vue'
 
 const routes = [
   {
@@ -32,6 +33,12 @@ const routes = [
     name: 'StyleManagement',
     component: StyleManagement,
     meta: { title: '风格管理', icon: 'Collection', isManagement: true }
+  },
+  {
+    path: '/system-monitoring',
+    name: 'SystemMonitoring',
+    component: SystemMonitoring,
+    meta: { title: '系统监控', icon: 'Monitor', isManagement: true }
   }
 ]
 

@@ -44,6 +44,9 @@ flake8==6.1.0
 isort==5.12.0
 mypy==1.7.1
 
+# System monitoring
+psutil>=5.9.0
+
 # Local model training and inference (QLoRA)
 torch>=2.0.0
 transformers>=4.35.0
