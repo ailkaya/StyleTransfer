@@ -20,6 +20,7 @@ class TaskCreate(BaseModel):
     style_id: str = Field(..., description="风格ID")
     base_model: str = Field(default="llama-2-3b", description="底座模型")
     training_text: str = Field(..., min_length=100, description="训练文本内容")
+    source_text: Optional[str] = Field(default=None, description="原文（源文本），用于生成风格转换训练数据")
     config: TrainingConfig = Field(default_factory=TrainingConfig, description="训练配置")
     parent_style_id: Optional[str] = Field(default=None, description="父风格ID（用于继续训练）")
 

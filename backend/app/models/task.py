@@ -72,6 +72,11 @@ class Task(Base):
         nullable=True,
         comment="原始训练文本临时文件路径"
     )
+    source_text_path: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="原文（源文本）临时文件路径"
+    )
     parent_style_id: Mapped[Optional[str]] = mapped_column(
         String(36),
         nullable=True,

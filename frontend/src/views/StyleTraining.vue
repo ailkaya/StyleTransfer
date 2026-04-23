@@ -256,6 +256,56 @@
                 <el-icon><InfoFilled /></el-icon>
                 <span>预估 tokens: {{ estimatedTokens.toLocaleString() }}</span>
               </div>
+
+              <div class="divider">
+                <span>原文（可选）</span>
+              </div>
+
+              <div class="source-text-section">
+                <div class="source-text-hint">
+                  <el-icon><InfoFilled /></el-icon>
+                  <span>上传或输入原文，用于生成风格转换训练数据。若留空，则默认原文风格为<strong>中性风格</strong>。</span>
+                </div>
+
+                <el-upload
+                  class="modern-upload source-upload"
+                  drag
+                  action=""
+                  :auto-upload="false"
+                  :show-file-list="true"
+                  :on-change="handleSourceFileChange"
+                  :limit="1"
+                  accept=".txt,.md,.docx"
+                >
+                  <div class="upload-content">
+                    <div class="upload-icon small">
+                      <el-icon :size="32"><UploadFilled /></el-icon>
+                    </div>
+                    <div class="upload-text">
+                      <h4>拖拽原文文件到此处</h4>
+                      <p>或点击上传原文文本文件</p>
+                      <span class="upload-hint">支持 .txt, .md, .docx 格式</span>
+                    </div>
+                  </div>
+                </el-upload>
+
+                <div class="text-input-section">
+                  <div class="input-header">
+                    <span class="input-label">直接输入原文</span>
+                    <span class="char-count">
+                      {{ form.source_text.length.toLocaleString() }} 字符
+                    </span>
+                  </div>
+                  <el-input
+                    v-model="form.source_text"
+                    type="textarea"
+                    :rows="6"
+                    placeholder="在此粘贴原文...&#10;原文是指未经风格转化的原始文本，用于训练模型理解从原文到目标风格的映射关系"
+                    resize="none"
+                    class="training-textarea"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -402,6 +452,11 @@
             </div>
 
             <div class="preview-section">
+              <span class="preview-label">原文</span>
+              <span class="preview-value">{{ form.source_text ? formatDataSize(form.source_text.length) : '未设置（默认中性风格）' }}</span>
+            </div>
+
+            <div class="preview-section">
               <span class="preview-label">预估时间</span>
               <span class="preview-value highlight">{{ estimatedTime }}</span>
             </div>
@@ -464,6 +519,7 @@ const form = reactive({
   target_style: '',
   base_model: '',
   training_text: '',
+  source_text: '',
   continue_training: false,
   parent_style_id: null,
   config: {
@@ -606,6 +662,18 @@ function handleFileChange(file) {
   reader.readAsText(file.raw)
 }
 
+function handleSourceFileChange(file) {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    form.source_text = e.target.result
+    ElMessage.success(`原文文件 "${file.name}" 读取成功`)
+  }
+  reader.onerror = () => {
+    ElMessage.error('原文文件读取失败')
+  }
+  reader.readAsText(file.raw)
+}
+
 async function startTraining() {
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) {
@@ -636,6 +704,7 @@ async function startTraining() {
       style_id: style.id,
       base_model: form.base_model,
       training_text: form.training_text,
+      source_text: form.source_text || undefined,
       config: form.config,
       parent_style_id: form.continue_training ? form.parent_style_id : null
     }
@@ -1008,6 +1077,37 @@ async function startTraining() {
   background: var(--bg-card);
   border-color: var(--border-color);
   border-radius: var(--radius-md);
+}
+
+.source-text-section {
+  padding: 8px 0;
+}
+
+.source-text-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: var(--radius-md);
+  color: var(--success-color);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.source-text-hint .el-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.source-upload :deep(.el-upload-dragger) {
+  padding: 32px 48px;
+}
+
+.source-upload .upload-icon.small {
+  width: 56px;
+  height: 56px;
 }
 
 .token-estimate {

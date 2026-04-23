@@ -156,7 +156,8 @@ def train_style_model(
     style_id: str,
     training_text: str,
     config: dict,
-    parent_style_id: str = None
+    parent_style_id: str = None,
+    source_text: str = None
 ):
     """
     Celery task for training style model.
@@ -170,6 +171,8 @@ def train_style_model(
     logger.info(f"Starting training task: {task_id}")
     logger.info(f"Style ID: {style_id}")
     logger.info(f"Training text length: {len(training_text)} chars")
+    if source_text:
+        logger.info(f"Source text length: {len(source_text)} chars")
     logger.info(f"Config: {config}")
     logger.info(f"Celery task ID: {self.request.id}")
     logger.info(f"Attempt: {self.request.retries + 1}/4")
@@ -206,6 +209,7 @@ def train_style_model(
         return
 
     training_text_path = None
+    source_text_path = None
 
     # Persist raw training text to temp file before preprocessing
     try:
@@ -220,6 +224,16 @@ def train_style_model(
     except Exception as e:
         logger.error(f"Failed to persist training_text for task {task_id}: {e}")
 
+    # Persist source text to temp file if provided
+    if source_text:
+        try:
+            source_text_path = os.path.join(training_text_dir, f"{task_id}_source.txt")
+            with open(source_text_path, 'w', encoding='utf-8') as f:
+                f.write(source_text)
+            logger.info(f"Saved source_text to {source_text_path}")
+        except Exception as e:
+            logger.error(f"Failed to persist source_text for task {task_id}: {e}")
+
     try:
         # Preprocess training text using DataPreprocessor
         logger.info("Step 1: Preprocessing training text with DataPreprocessor...")
@@ -233,6 +247,7 @@ def train_style_model(
         inference_service = get_inference_service()
         preprocessed = asyncio.run(preprocessor.process(
             raw_text=training_text,
+            source_text=source_text,
             inference_service=inference_service,
             # target_length=config.get("chunk_size", 512),
             train_ratio=0.95
@@ -379,6 +394,13 @@ def train_style_model(
                 logger.info(f"Removed training_text temp file: {training_text_path}")
             except Exception as e:
                 logger.warning(f"Failed to remove training_text temp file: {e}")
+        # Delete temporary source text file if it exists
+        if source_text_path and os.path.exists(source_text_path):
+            try:
+                os.remove(source_text_path)
+                logger.info(f"Removed source_text temp file: {source_text_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove source_text temp file: {e}")
 
 
 def recover_pending_tasks():
@@ -406,6 +428,17 @@ def recover_pending_tasks():
             with open(training_text_path, 'r', encoding='utf-8') as f:
                 training_text = f.read()
 
+            # Try to load source text if exists
+            source_text = None
+            source_text_path = os.path.join(os.path.dirname(training_text_path), f"{task_id}_source.txt")
+            if os.path.exists(source_text_path):
+                try:
+                    with open(source_text_path, 'r', encoding='utf-8') as f:
+                        source_text = f.read()
+                    logger.info(f"Recovered source_text for task {task_id}: {len(source_text)} chars")
+                except Exception as e:
+                    logger.warning(f"Failed to read source_text for task {task_id}: {e}")
+
             db.update_task_status(task_id, "PENDING")
             db.update_style_status(style_id, "pending", None)
 
@@ -415,6 +448,7 @@ def recover_pending_tasks():
                 task_id=task_id,
                 style_id=style_id,
                 training_text=training_text,
+                source_text=source_text,
                 config=config,
                 parent_style_id=parent_style_id,
             )

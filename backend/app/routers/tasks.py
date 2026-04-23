@@ -149,6 +149,7 @@ async def create_task(
             task_id=str(new_task.id),
             style_id=task_data.style_id,
             training_text=task_data.training_text,
+            source_text=task_data.source_text,
             config=config_dict,
             parent_style_id=task_data.parent_style_id,
         )

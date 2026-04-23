@@ -55,17 +55,19 @@ class DataPreprocessor:
             return self.style_config['system_prompt']
         return f"你是<{self.style_tag}>的文章生成助手，擅长模仿该风格的写作特点。"
 
-    def _get_cache_key(self, raw_text: str) -> str:
-        """基于 raw_text 和 style_tag 计算缓存 key"""
+    def _get_cache_key(self, raw_text: str, source_text: str = None) -> str:
+        """基于 raw_text、source_text 和 style_tag 计算缓存 key"""
         content = f"{self.style_tag}:{raw_text}"
+        if source_text:
+            content += f":source:{source_text[:500]}"
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-    def _get_cache_path(self, raw_text: str) -> str:
-        key = self._get_cache_key(raw_text)
+    def _get_cache_path(self, raw_text: str, source_text: str = None) -> str:
+        key = self._get_cache_key(raw_text, source_text)
         return os.path.join(self.cache_dir, "process", key)
 
-    def _load_from_cache(self, raw_text: str) -> Optional[Dict]:
-        cache_path = self._get_cache_path(raw_text)
+    def _load_from_cache(self, raw_text: str, source_text: str = None) -> Optional[Dict]:
+        cache_path = self._get_cache_path(raw_text, source_text)
         logger.info(f"[DataPreprocessor] cache path: {cache_path}")
         files = {
             "train_data": "train.jsonl",
@@ -94,6 +96,11 @@ class DataPreprocessor:
         if os.path.exists(style_guide_path):
             with open(style_guide_path, "r", encoding="utf-8") as f:
                 result["style_guide"] = f.read()
+        # 读取 source_style_guide
+        source_style_guide_path = os.path.join(cache_path, "source_style_guide.md")
+        if os.path.exists(source_style_guide_path):
+            with open(source_style_guide_path, "r", encoding="utf-8") as f:
+                result["source_style_guide"] = f.read()
         # 读取 keywords
         keywords_path = os.path.join(cache_path, "keywords.json")
         if os.path.exists(keywords_path):
@@ -102,8 +109,8 @@ class DataPreprocessor:
         logger.info(f"Loaded preprocessing result from cache: {cache_path}")
         return result
 
-    def _save_to_cache(self, raw_text: str, result: Dict):
-        cache_path = self._get_cache_path(raw_text)
+    def _save_to_cache(self, raw_text: str, result: Dict, source_text: str = None):
+        cache_path = self._get_cache_path(raw_text, source_text)
         os.makedirs(cache_path, exist_ok=True)
         files = {
             "train_data": "train.jsonl",
@@ -130,6 +137,11 @@ class DataPreprocessor:
         if style_guide is not None:
             with open(os.path.join(cache_path, "style_guide.md"), "w", encoding="utf-8") as f:
                 f.write(style_guide)
+        # 写入 source_style_guide
+        source_style_guide = result.get("source_style_guide")
+        if source_style_guide is not None:
+            with open(os.path.join(cache_path, "source_style_guide.md"), "w", encoding="utf-8") as f:
+                f.write(source_style_guide)
         # 写入 keywords
         keywords = result.get("keywords")
         if keywords is not None:
@@ -199,7 +211,7 @@ class DataPreprocessor:
         logger.info(f"Extracted {len(keywords)} keywords from cleaned text")
         return keywords
 
-    async def _extract_style_guide(self, chunks: List[TextChunk], inference_service) -> str:
+    async def _extract_style_guide(self, chunks: List[TextChunk], inference_service, style_tag: str = None) -> str:
         """从清洗后的文本中随机采样数段，让大模型总结风格特征"""
         sample_count = min(len(chunks), 8)
         sampled = random.sample(chunks, sample_count)
@@ -209,9 +221,10 @@ class DataPreprocessor:
             fragments.append(f"片段{i+1}:\n{text}")
         fragments_text = "\n\n".join(fragments)
 
+        tag = style_tag
         prompt = f"""请分析以下文本片段的写作风格特征，并输出一份结构化的风格指南，供后续写作任务参考。
 预期风格：
-{self.style_tag}
+{tag}
 文本片段：
 {fragments_text}
 
@@ -237,7 +250,7 @@ class DataPreprocessor:
             return style_guide.strip()
         except Exception as e:
             logger.error(f"Style guide extraction failed: {e}")
-            return f"# 风格指南\n\n目标风格：{self.style_tag}\n\n（风格特征提取失败，使用默认配置）"
+            return f"# 风格指南\n\n目标风格：{tag}\n\n（风格特征提取失败，使用默认配置）"
 
     async def clean_text(
         self, raw_text: str, inference_service,
@@ -760,9 +773,23 @@ class DataPreprocessor:
         logger.info(f"Summarization sample generation complete (LLM): {len(samples)} samples")
         return samples
 
-    async def _neutralize_text(self, text: str, inference_service) -> str:
-        """LLM 去风格生成"""
-        prompt = f"""请将以下文本改写为"中性客观表达"，要求：
+    async def _neutralize_text(self, text: str, inference_service, source_style_guide: str = None) -> str:
+        """LLM 去风格生成。若提供 source_style_guide，则改写为原文风格而非中性风格。"""
+        if source_style_guide:
+            prompt = f"""{source_style_guide}
+
+请根据上述风格指南，将以下文本改写为符合该风格特征的表达，要求：
+- 保留原始语义，不改变事实
+- 不要扩写或缩写内容
+- 不要解释
+
+文本：
+{text}
+
+"""
+            system_prompt = "你是一个文本改写助手，只输出改写后的文本，不要解释。"
+        else:
+            prompt = f"""请将以下文本改写为"中性客观表达"，要求：
 
 - 保留原始语义，不改变事实
 - 去除文学性表达（如比喻、讽刺、情绪渲染）
@@ -773,11 +800,12 @@ class DataPreprocessor:
 文本：
 {text}
 
-输出："""
+"""
+            system_prompt = "你是一个文本改写助手，只输出改写后的文本，不要解释。"
         try:
             response = await inference_service.call_llm_raw(
                 prompt=prompt,
-                system_prompt="你是一个文本改写助手，只输出改写后的文本，不要解释。",
+                system_prompt=system_prompt,
                 temperature=0.3,
                 max_tokens=1024
             )
@@ -850,9 +878,10 @@ B: {neutral}
 
         return True
 
-    async def generate_style_transfer_samples(self, sentences: List[str], inference_service, style_guide: str, max_samples: int = 100, progress=None, task_id=None) -> List[Dict]:
+    async def generate_style_transfer_samples(self, sentences: List[str], inference_service, style_guide: str, max_samples: int = 100, progress=None, task_id=None, source_style_guide: str = None) -> List[Dict]:
         """
         生成风格转换样本（LLM驱动，根据风格指南生成风格化表达）
+        若提供 source_style_guide，则将原文改写为源风格而非中性风格。
         """
         style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
         samples = []
@@ -860,8 +889,8 @@ B: {neutral}
         selected_sentences = random.sample(sentences, count) if len(sentences) > count else sentences
 
         for original in selected_sentences:
-            # 去风格
-            neutral = await self._neutralize_text(original, inference_service)
+            # 去风格（若提供 source_style_guide 则改写为源风格，否则为中性风格）
+            neutral = await self._neutralize_text(original, inference_service, source_style_guide=source_style_guide)
             if not neutral:
                 logger.info(f"  -> Neutralization returned empty, skip")
                 if progress and task_id is not None:
@@ -893,8 +922,12 @@ B: {neutral}
 
             # 构造反向样本（30%概率）
             if random.random() < 0.3 and neutral:
+                if source_style_guide:
+                    reverse_instruction = "请将文本改写为原文风格，保持原意，不扩写。"
+                else:
+                    reverse_instruction = "请将文本改写为中性表达，保持原意，不扩写。"
                 samples.append({
-                    "instruction": "请将文本改写为中性表达，保持原意，不扩写。",
+                    "instruction": reverse_instruction,
                     "input": original,
                     "output": neutral,
                 })
@@ -905,9 +938,10 @@ B: {neutral}
         logger.info(f"Style transfer sample generation complete: {len(samples)} samples kept")
         return samples
 
-    async def generate_style_transfer_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 100, progress=None, task_id=None) -> List[Dict]:
+    async def generate_style_transfer_samples_llm(self, keywords: List[str], inference_service, style_guide: str, max_samples: int = 100, progress=None, task_id=None, source_style_guide: str = None) -> List[Dict]:
         """
         生成风格转换样本（LLM驱动，不依赖chunks，纯API生成input和output）
+        若提供 source_style_guide，则生成的 input 遵循原文风格而非中性风格。
         """
         style_name = self.style_tag.strip('<>') if self.style_tag.startswith('<') and self.style_tag.endswith('>') else self.style_tag
         samples = []
@@ -917,14 +951,25 @@ B: {neutral}
         selected = random.sample(keywords, count)
 
         for topic in selected:
-            # 第一步：生成中性/通用文本（input）
-            prompt_neutral = f"""请用中性、客观、现代的语言写一段关于"{topic}"的文字，字数控制在40字以内。不要使用文学性修辞。
+            # 第一步：生成源风格/中性文本（input）
+            if source_style_guide:
+                prompt_neutral = f"""{source_style_guide}
+
+请根据上述风格指南，写一段关于"{topic}"的文字，字数控制在60字以内。
 
 请仅输出正文，不要解释。"""
+                neutral_system = "你是一个写作助手，只输出符合指定风格的文本。"
+                reverse_instruction = "请将文本改写为原文风格，保持原意，不扩写。"
+            else:
+                prompt_neutral = f"""请用中性、客观、现代的语言写一段关于"{topic}"的文字，字数控制在60字以内。不要使用文学性修辞。
+
+请仅输出正文，不要解释。"""
+                neutral_system = "你是一个中性文本写作助手，只输出简单直接的文本。"
+                reverse_instruction = "请将文本改写为中性表达，保持原意，不扩写。"
             try:
                 neutral = await inference_service.call_llm_raw(
                     prompt=prompt_neutral,
-                    system_prompt="你是一个中性文本写作助手，只输出简单直接的文本。",
+                    system_prompt=neutral_system,
                     temperature=0.7,
                     max_tokens=256
                 )
@@ -935,7 +980,8 @@ B: {neutral}
                 # 第二步：根据风格指南改写为风格化表达（output）
                 prompt_style = f"""{style_guide}
 
-请根据上述风格指南，将以下文本改写为{style_name}风格，保持原意，不扩写：
+请根据上述风格指南，将以下文本改写为{style_name}风格，[重要]不要改变句子的原意，不要进行扩写或删除已有的部分。
+待改写文本：
 
 {neutral}
 
@@ -959,7 +1005,7 @@ B: {neutral}
                 # 构造反向样本（30%概率）
                 if random.random() < 0.3:
                     samples.append({
-                        "instruction": "请将文本改写为中性表达，保持原意，不扩写。",
+                        "instruction": reverse_instruction,
                         "input": styled_output,
                         "output": neutral,
                     })
@@ -1056,7 +1102,8 @@ B: {neutral}
                       continuation_samples_num: int = 250,
                       generation_samples_num: int = 250,
                       explanation_samples_num: int = 250,
-                      summarization_samples_num: int = 250) -> Dict:
+                      summarization_samples_num: int = 250,
+                      source_text: str = None) -> Dict:
         """
         完整预处理流程
 
@@ -1065,16 +1112,17 @@ B: {neutral}
                   格式转换 → 验证划分 → 缓存写入
 
         Args:
-            raw_text: 原始输入文本
+            raw_text: 原始输入文本（目标风格文本）
             inference_service: 推理服务实例（用于调用LLM）
             target_length: 目标分块长度
             train_ratio: 训练集比例
+            source_text: 原文（源文本），可选。若提供，则提取其风格特征用于生成风格转换样本中的原文。
 
         Returns:
             包含train_data, val_data, metadata的字典
         """
         # Step 0: 检查缓存
-        cached = self._load_from_cache(raw_text)
+        cached = self._load_from_cache(raw_text, source_text)
         if cached is not None:
             logger.info("[Preprocessing] Step 0 completed: loaded from cache")
             return cached
@@ -1098,12 +1146,24 @@ B: {neutral}
             use_chunk_data = self.use_chunk_data
 
         # Step 2.5: 提取风格特征
-        style_guide = await self._extract_style_guide(chunks, inference_service)
+        style_guide = await self._extract_style_guide(chunks, inference_service, style_tag=self.style_tag)
         logger.info(f"[Preprocessing] Step 2.5 completed: style guide extracted ({len(style_guide)} chars)")
 
         # Step 2.6: 提取关键词池
         keywords = await self._extract_keywords(n=400)
         logger.info(f"[Preprocessing] Step 2.6 completed: {len(keywords)} keywords extracted")
+
+        # Step 2.7: 若提供了原文，提取原文风格特征
+        source_style_guide = None
+        if source_text:
+            source_raw_chunks = self.semantic_chunking(text=source_text, overlap=0)
+            source_raw_chunks = source_raw_chunks[:min(len(source_raw_chunks), 50)]
+            if not skip_clean:
+                source_chunks, source_cleaned = await self._clean_chunks(source_raw_chunks, source_text, inference_service, target_length)
+            else:
+                source_chunks, source_cleaned = self.semantic_chunking(text=source_text, target_length=target_length, overlap=0), source_text
+            source_style_guide = await self._extract_style_guide(source_chunks, inference_service, style_tag="原文风格")
+            logger.info(f"[Preprocessing] Step 2.7 completed: source style guide extracted ({len(source_style_guide)} chars)")
 
         if use_chunk_data:
             # Step 3: 句子拆分（用于风格转换任务）
@@ -1148,7 +1208,8 @@ B: {neutral}
                     ),
                     self.generate_style_transfer_samples(
                         sentences, inference_service, style_guide,
-                        max_samples=style_count, progress=progress, task_id=style_task
+                        max_samples=style_count, progress=progress, task_id=style_task,
+                        source_style_guide=source_style_guide
                     ),
                 )
         else:
@@ -1189,7 +1250,8 @@ B: {neutral}
                     ),
                     self.generate_style_transfer_samples_llm(
                         keywords, inference_service, style_guide,
-                        max_samples=style_transfer_num, progress=progress, task_id=style_task
+                        max_samples=style_transfer_num, progress=progress, task_id=style_task,
+                        source_style_guide=source_style_guide
                     ),
                 )
             logger.info(f"[Preprocessing] Step 4 completed: {len(continuation_samples)} continuation samples generated (LLM)")
@@ -1223,7 +1285,10 @@ B: {neutral}
             "style_transfer_sample_count": len(style_samples),
             "sample_count": len(all_samples),
             "style_tag": self.style_tag,
-            "system_prompt": self.system_prompt
+            "system_prompt": self.system_prompt,
+            "has_source_text": bool(source_text),
+            "source_text_length": len(source_text) if source_text else 0,
+            "source_style_guide_length": len(source_style_guide) if source_style_guide else 0,
         })
 
         result = {
@@ -1234,11 +1299,12 @@ B: {neutral}
             "samples": all_samples,
             "cleaned_text": cleaned_text,
             "style_guide": style_guide,
+            "source_style_guide": source_style_guide,
             "keywords": keywords,
         }
 
         # Step 8: 写入缓存
-        self._save_to_cache(raw_text, result)
+        self._save_to_cache(raw_text, result, source_text)
         logger.info("[Preprocessing] Step 8 completed: result saved to cache")
         return result
 

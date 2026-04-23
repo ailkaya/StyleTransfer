@@ -33,14 +33,15 @@ async def main():
     parser = argparse.ArgumentParser(description="Test enhanced preprocessing pipeline")
     parser.add_argument("file_path", help="Path to the raw training text file")
     parser.add_argument("style", help="Target style name")
+    parser.add_argument("--source-file", default=None, help="Path to the source text file (optional). If provided, source style guide will be extracted for style transfer samples.")
     parser.add_argument("--output-dir", default="./test_output", help="Directory to save train.jsonl and val.jsonl")
     parser.add_argument("--chunk-size", type=int, default=128, help="Semantic chunk target length")
     parser.add_argument("--cache-dir", default="./cache/preprocess", help="Cache directory for preprocessing results")
-    parser.add_argument("--style-transfer-num", type=int, default=400, help="Number of style transfer samples")
-    parser.add_argument("--continuation-num", type=int, default=200, help="Number of continuation samples")
-    parser.add_argument("--generation-num", type=int, default=200, help="Number of generation samples")
-    parser.add_argument("--explanation-num", type=int, default=200, help="Number of explanation samples")
-    parser.add_argument("--summarization-num", type=int, default=200, help="Number of summarization samples")
+    parser.add_argument("--style-transfer-num", type=int, default=2, help="Number of style transfer samples")
+    parser.add_argument("--continuation-num", type=int, default=2, help="Number of continuation samples")
+    parser.add_argument("--generation-num", type=int, default=2, help="Number of generation samples")
+    parser.add_argument("--explanation-num", type=int, default=2, help="Number of explanation samples")
+    parser.add_argument("--summarization-num", type=int, default=2, help="Number of summarization samples")
     args = parser.parse_args()
     print(args, end='\n')
 
@@ -50,6 +51,15 @@ async def main():
 
     with open(args.file_path, "r", encoding="utf-8") as f:
         raw_text = f.read()
+
+    source_text = None
+    if args.source_file:
+        if not os.path.exists(args.source_file):
+            logger.error(f"Source file not found: {args.source_file}")
+            sys.exit(1)
+        with open(args.source_file, "r", encoding="utf-8") as f:
+            source_text = f.read()
+        logger.info(f"Read source text: {len(source_text)} chars from {args.source_file}")
 
     # logger.info(f"Read {len(raw_text)} chars from {args.file_path}")
     # print(raw_text, end='\n')
@@ -65,6 +75,7 @@ async def main():
 
     result = await preprocessor.process(
         raw_text=raw_text,
+        source_text=source_text,
         inference_service=inference_service,
         target_length=args.chunk_size,
         train_ratio=0.90,
@@ -110,6 +121,9 @@ async def main():
     logger.info(f"  - Train samples: {len(train_data)}")
     logger.info(f"  - Val samples: {len(val_data)}")
     logger.info(f"  - Avg length: {metadata['avg_length']:.0f} chars")
+    if metadata.get('has_source_text'):
+        logger.info(f"  - Source text: {metadata['source_text_length']} chars")
+        logger.info(f"  - Source style guide: {metadata['source_style_guide_length']} chars")
     logger.info("=" * 60)
 
 
