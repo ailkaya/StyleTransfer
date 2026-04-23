@@ -41,3 +41,12 @@ base_models:
     params: "1.5B参数"
     speed: "推理增强"
     speed_value: 1000
+
+  minicpm-2b:
+    hf_name: "openbmb/MiniCPM-2B-sft-bf16"
+    display_name: "MiniCPM-2B"
+    type: "minicpm"
+    description: "清华面壁智能出品，中文能力媲美7B模型，端侧部署首选"
+    params: "2.4B参数"
+    speed: "端侧极速"
+    speed_value: 900
