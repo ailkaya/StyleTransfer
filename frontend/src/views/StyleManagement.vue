@@ -321,7 +321,7 @@ function startPolling() {
   // Then poll every 5 seconds
   pollInterval = setInterval(() => {
     styleStore.fetchStyles({ page_size: 100 })
-  }, 10000)
+  }, 20000)
 }
 
 function stopPolling() {

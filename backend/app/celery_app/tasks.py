@@ -181,6 +181,11 @@ def train_style_model(
     if not db.task_exists(task_id=task_id):
         logger.warning(f"Task {task_id} not found, task terminate")
         return
+    
+    task = db.get_task(task_id=task_id)
+    if task.status == 'COMPLETED':
+        logger.info(f"Task {task_id} COMPLETED")
+        return
 
     # Update style status to preprocessing
     db.update_style_status(style_id, "preprocessing", None)

@@ -66,6 +66,7 @@ class DataPreprocessor:
 
     def _load_from_cache(self, raw_text: str) -> Optional[Dict]:
         cache_path = self._get_cache_path(raw_text)
+        logger.info(f"[DataPreprocessor] cache path: {cache_path}")
         files = {
             "train_data": "train.jsonl",
             "val_data": "val.jsonl",
@@ -209,7 +210,8 @@ class DataPreprocessor:
         fragments_text = "\n\n".join(fragments)
 
         prompt = f"""请分析以下文本片段的写作风格特征，并输出一份结构化的风格指南，供后续写作任务参考。
-
+预期风格：
+{self.style_tag}
 文本片段：
 {fragments_text}
 
@@ -1049,7 +1051,12 @@ B: {neutral}
         return valid_data[:split_idx], valid_data[split_idx:], metadata
 
     async def process(self, raw_text: str, inference_service, target_length: int = 128,
-                      train_ratio: float = 0.9, skip_clean: bool = False) -> Dict:
+                      train_ratio: float = 0.9, skip_clean: bool = False,
+                      style_transfer_num: int = 500,
+                      continuation_samples_num: int = 250,
+                      generation_samples_num: int = 250,
+                      explanation_samples_num: int = 250,
+                      summarization_samples_num: int = 250) -> Dict:
         """
         完整预处理流程
 
@@ -1097,12 +1104,6 @@ B: {neutral}
         # Step 2.6: 提取关键词池
         keywords = await self._extract_keywords(n=400)
         logger.info(f"[Preprocessing] Step 2.6 completed: {len(keywords)} keywords extracted")
-
-        style_transfer_num = 500
-        continuation_samples_num = 250
-        generation_samples_num = 250
-        explanation_samples_num = 250
-        summarization_samples_num = 250
 
         if use_chunk_data:
             # Step 3: 句子拆分（用于风格转换任务）

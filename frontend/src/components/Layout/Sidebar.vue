@@ -56,7 +56,7 @@
           <el-icon :size="16"><InfoFilled /></el-icon>
         </div>
         <div class="footer-info">
-          <span class="version">v0.1.0 Beta</span>
+          <span class="version">v1.0.0</span>
           <span class="status">
             <span class="status-dot" />
             系统正常运行

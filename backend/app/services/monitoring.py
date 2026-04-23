@@ -21,7 +21,12 @@ except ImportError:
     logger.warning("torch not installed, GPU monitoring disabled")
 
 try:
-    from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetUtilizationRates
+    from pynvml import (
+        nvmlInit,
+        nvmlDeviceGetHandleByIndex,
+        nvmlDeviceGetUtilizationRates,
+        nvmlDeviceGetMemoryInfo,
+    )
     _PYNVML_AVAILABLE = True
 except ImportError:
     _PYNVML_AVAILABLE = False
@@ -70,17 +75,15 @@ class MonitoringService:
 
         for i in range(gpu_count):
             props = torch.cuda.get_device_properties(i)
-            allocated_mb = torch.cuda.memory_allocated(i) / 1024 / 1024
-            reserved_mb = torch.cuda.memory_reserved(i) / 1024 / 1024
             total_mb = props.total_memory / 1024 / 1024
 
             gpu_info = {
                 "id": i,
                 "name": props.name,
                 "total_mb": round(total_mb, 0),
-                "allocated_mb": round(allocated_mb, 0),
-                "reserved_mb": round(reserved_mb, 0),
-                "free_mb": round(total_mb - allocated_mb, 0),
+                "allocated_mb": None,
+                "reserved_mb": None,
+                "free_mb": None,
                 "utilization_percent": None,
             }
 
@@ -88,10 +91,24 @@ class MonitoringService:
                 try:
                     nvmlInit()
                     handle = nvmlDeviceGetHandleByIndex(i)
+                    mem_info = nvmlDeviceGetMemoryInfo(handle)
                     util = nvmlDeviceGetUtilizationRates(handle)
+
+                    # pynvml returns bytes
+                    gpu_info["total_mb"] = round(mem_info.total / 1024 / 1024, 0)
+                    gpu_info["allocated_mb"] = round(mem_info.used / 1024 / 1024, 0)
+                    gpu_info["free_mb"] = round(mem_info.free / 1024 / 1024, 0)
                     gpu_info["utilization_percent"] = util.gpu
                 except Exception:
                     pass
+
+            # Fallback to torch process-level stats if pynvml failed or unavailable
+            if gpu_info["allocated_mb"] is None:
+                allocated_mb = torch.cuda.memory_allocated(i) / 1024 / 1024
+                reserved_mb = torch.cuda.memory_reserved(i) / 1024 / 1024
+                gpu_info["allocated_mb"] = round(allocated_mb, 0)
+                gpu_info["reserved_mb"] = round(reserved_mb, 0)
+                gpu_info["free_mb"] = round(total_mb - allocated_mb, 0)
 
             gpus.append(gpu_info)
 

@@ -92,38 +92,62 @@
           <h3>GPU</h3>
           <el-tag v-if="stats.gpu.available" size="small" type="success">{{ stats.gpu.count }} 设备</el-tag>
           <el-tag v-else size="small" type="info">未检测到</el-tag>
+
+          <el-radio-group
+            v-if="stats.gpu.available"
+            v-model="timeRange"
+            size="small"
+            class="time-range-selector"
+          >
+            <el-radio-button :label="30 * 60 * 1000">30分钟</el-radio-button>
+            <el-radio-button :label="60 * 60 * 1000">1小时</el-radio-button>
+            <el-radio-button :label="2 * 60 * 60 * 1000">2小时</el-radio-button>
+            <el-radio-button :label="3 * 60 * 60 * 1000">3小时</el-radio-button>
+          </el-radio-group>
         </div>
 
-        <div v-if="stats.gpu.available" class="gpu-grid">
-          <div v-for="gpu in stats.gpu.gpus" :key="gpu.id" class="metric-card gpu-card">
-            <div class="metric-header">
-              <div class="metric-icon gpu-icon">
-                <el-icon :size="20"><VideoCamera /></el-icon>
+        <div v-if="stats.gpu.available" class="gpu-charts">
+          <!-- Current snapshot row -->
+          <div class="gpu-current-stats">
+            <div
+              v-for="gpu in stats.gpu.gpus"
+              :key="gpu.id"
+              class="gpu-stat-item"
+            >
+              <div class="gpu-stat-header">
+                <el-icon :size="14"><VideoCamera /></el-icon>
+                <span class="gpu-stat-name">{{ gpu.name }}</span>
               </div>
-              <div class="metric-title">
-                <h3>{{ gpu.name }}</h3>
-                <p>
-                  {{ gpu.allocated_mb.toLocaleString() }} MB / {{ gpu.total_mb.toLocaleString() }} MB
-                </p>
-              </div>
-            </div>
-            <div class="metric-body">
-              <div class="percent-value" :style="{ color: getPercentColor((gpu.allocated_mb / gpu.total_mb) * 100) }">
-                {{ ((gpu.allocated_mb / gpu.total_mb) * 100).toFixed(1) }}%
+              <div class="gpu-stat-values">
+                <span
+                  class="gpu-stat-value"
+                  :style="{ color: getPercentColor(gpu.utilization_percent ?? 0) }"
+                >
+                  {{ gpu.utilization_percent !== null ? gpu.utilization_percent + '%' : '-' }}
+                </span>
+                <span class="gpu-stat-mem">
+                  {{ gpu.allocated_mb.toLocaleString() }} / {{ gpu.total_mb.toLocaleString() }} MB
+                </span>
               </div>
               <el-progress
-                :percentage="Math.min((gpu.allocated_mb / gpu.total_mb) * 100, 100)"
+                :percentage="Math.min(((gpu.allocated_mb / gpu.total_mb) * 100) || 0, 100)"
                 :color="progressColors"
-                :stroke-width="12"
+                :stroke-width="6"
                 :show-text="false"
               />
-              <div class="gpu-details">
-                <span>已分配: {{ gpu.allocated_mb.toLocaleString() }} MB</span>
-                <span>预留: {{ gpu.reserved_mb.toLocaleString() }} MB</span>
-                <span>空闲: {{ gpu.free_mb.toLocaleString() }} MB</span>
-                <span v-if="gpu.utilization_percent !== null">利用率: {{ gpu.utilization_percent }}%</span>
-              </div>
             </div>
+          </div>
+
+          <!-- Utilization Chart -->
+          <div class="chart-container">
+            <div class="chart-title">GPU 利用率趋势 (%)</div>
+            <v-chart class="chart" :option="utilizationChartOption" autoresize />
+          </div>
+
+          <!-- Memory Chart -->
+          <div class="chart-container">
+            <div class="chart-title">GPU 显存占用趋势 (MB)</div>
+            <v-chart class="chart" :option="memoryChartOption" autoresize />
           </div>
         </div>
 
@@ -143,7 +167,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
 import {
   Monitor,
   Cpu,
@@ -153,7 +176,20 @@ import {
   CircleCheck,
   CircleClose
 } from '@element-plus/icons-vue'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart } from 'echarts/charts'
+import {
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DataZoomComponent,
+  MarkLineComponent
+} from 'echarts/components'
+import VChart from 'vue-echarts'
 import { monitoringApi } from '@/api/monitoring'
+
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent])
 
 const stats = ref({
   cpu: { available: false },
@@ -162,6 +198,8 @@ const stats = ref({
 })
 const loading = ref(false)
 const lastFetchTime = ref(null)
+const gpuHistory = ref([])
+const timeRange = ref(30 * 60 * 1000)
 
 const progressColors = [
   { color: '#10b981', percentage: 60 },
@@ -186,6 +224,112 @@ const connectionStatus = computed(() => {
   return { text: '更新延迟', type: 'warning', icon: 'CircleClose' }
 })
 
+const gpuColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272']
+
+const utilizationChartOption = computed(() => {
+  const cutoff = Date.now() - timeRange.value
+  const filtered = gpuHistory.value.filter(d => d.timestamp >= cutoff)
+  const gpus = stats.value.gpu.gpus || []
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const time = new Date(params[0].value[0]).toLocaleTimeString()
+        let html = `<div style="font-weight:bold;margin-bottom:4px">${time}</div>`
+        params.forEach(p => {
+          const val = p.value[1]
+          html += `<div>${p.marker} ${p.seriesName}: ${val !== null ? val + '%' : '-'}</div>`
+        })
+        return html
+      }
+    },
+    legend: {
+      data: gpus.map(g => g.name),
+      bottom: 0,
+      textStyle: { fontSize: 12 }
+    },
+    grid: { left: 50, right: 30, top: 20, bottom: 36 },
+    xAxis: {
+      type: 'time',
+      axisLabel: { formatter: '{HH}:{mm}' },
+      splitLine: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      name: '利用率 %',
+      min: 0,
+      max: 100,
+      splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
+    },
+    dataZoom: [{ type: 'inside' }],
+    series: gpus.map((gpu, idx) => ({
+      name: gpu.name,
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { width: 2 },
+      itemStyle: { color: gpuColors[idx % gpuColors.length] },
+      data: filtered.map(d => {
+        const g = d.gpus.find(x => x.id === gpu.id)
+        return [d.timestamp, g?.utilization_percent ?? null]
+      }).filter(p => p[1] !== null)
+    }))
+  }
+})
+
+const memoryChartOption = computed(() => {
+  const cutoff = Date.now() - timeRange.value
+  const filtered = gpuHistory.value.filter(d => d.timestamp >= cutoff)
+  const gpus = stats.value.gpu.gpus || []
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const time = new Date(params[0].value[0]).toLocaleTimeString()
+        let html = `<div style="font-weight:bold;margin-bottom:4px">${time}</div>`
+        params.forEach(p => {
+          const val = p.value[1]
+          html += `<div>${p.marker} ${p.seriesName}: ${val !== null ? val.toLocaleString() + ' MB' : '-'}</div>`
+        })
+        return html
+      }
+    },
+    legend: {
+      data: gpus.map(g => g.name),
+      bottom: 0,
+      textStyle: { fontSize: 12 }
+    },
+    grid: { left: 70, right: 30, top: 20, bottom: 36 },
+    xAxis: {
+      type: 'time',
+      axisLabel: { formatter: '{HH}:{mm}' },
+      splitLine: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      name: '显存 (MB)',
+      min: 0,
+      splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
+    },
+    dataZoom: [{ type: 'inside' }],
+    series: gpus.map((gpu, idx) => ({
+      name: gpu.name,
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { width: 2 },
+      areaStyle: { opacity: 0.1 },
+      itemStyle: { color: gpuColors[idx % gpuColors.length] },
+      data: filtered.map(d => {
+        const g = d.gpus.find(x => x.id === gpu.id)
+        return [d.timestamp, g?.allocated_mb ?? null]
+      }).filter(p => p[1] !== null)
+    }))
+  }
+})
+
 async function fetchStats() {
   loading.value = true
   try {
@@ -193,6 +337,23 @@ async function fetchStats() {
     if (res.code === 200 && res.data) {
       stats.value = res.data
       lastFetchTime.value = Date.now()
+
+      if (res.data.gpu?.available && res.data.gpu.gpus?.length) {
+        gpuHistory.value.push({
+          timestamp: Date.now(),
+          gpus: res.data.gpu.gpus.map(g => ({
+            id: g.id,
+            name: g.name,
+            allocated_mb: g.allocated_mb,
+            total_mb: g.total_mb,
+            utilization_percent: g.utilization_percent
+          }))
+        })
+        // Keep at most 3 hours of data (1080 points at 10s interval)
+        const maxAge = 3 * 60 * 60 * 1000
+        const cutoff = Date.now() - maxAge
+        gpuHistory.value = gpuHistory.value.filter(d => d.timestamp >= cutoff)
+      }
     }
   } catch (error) {
     console.error('Failed to fetch system stats:', error)
@@ -227,10 +388,13 @@ onUnmounted(() => {
 </script>
 
 <script>
-// Local component registration for icons used dynamically
+import { VideoCamera } from '@element-plus/icons-vue'
+import VChart from 'vue-echarts'
+
 export default {
   components: {
-    Gpu: VideoCamera
+    Gpu: VideoCamera,
+    VChart
   }
 }
 </script>
@@ -371,6 +535,7 @@ export default {
   align-items: center;
   gap: 10px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .section-header h3 {
@@ -391,29 +556,81 @@ export default {
   color: white;
 }
 
-.gpu-grid {
+.time-range-selector {
+  margin-left: auto;
+}
+
+/* GPU Current Stats */
+.gpu-current-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
-.gpu-card {
-  padding: 16px;
+.gpu-stat-item {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
 }
 
-.gpu-details {
+.gpu-stat-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 12px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.gpu-stat-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.gpu-stat-values {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gpu-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.gpu-stat-mem {
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.gpu-details span {
+/* Charts */
+.gpu-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chart-container {
   background: var(--bg-secondary);
-  padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+}
+
+.chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.chart {
+  width: 100%;
+  height: 260px;
 }
 
 /* Empty State */
@@ -461,8 +678,19 @@ export default {
     grid-template-columns: 1fr;
   }
 
-  .gpu-grid {
+  .gpu-current-stats {
     grid-template-columns: 1fr;
+  }
+
+  .time-range-selector {
+    margin-left: 0;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

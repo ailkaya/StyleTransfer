@@ -48,11 +48,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"CORS Origins: {settings.get_cors_origins()}")
 
     # Recover any non-terminal training tasks from previous sessions
-    logger.info("Checking for pending tasks to recover...")
-    try:
-        recover_pending_tasks()
-    except Exception as e:
-        logger.error(f"Failed to recover pending tasks: {e}")
+    if settings.RECOVER_PENDING_TASKS_ON_STARTUP:
+        logger.info("Checking for pending tasks to recover...")
+        try:
+            recover_pending_tasks()
+        except Exception as e:
+            logger.error(f"Failed to recover pending tasks: {e}")
+    else:
+        logger.info("Task recovery on startup is disabled")
 
     logger.info("Application startup complete")
     yield

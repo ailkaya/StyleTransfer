@@ -32,10 +32,15 @@ async def main():
 
     parser = argparse.ArgumentParser(description="Test enhanced preprocessing pipeline")
     parser.add_argument("file_path", help="Path to the raw training text file")
+    parser.add_argument("style", help="Target style name")
     parser.add_argument("--output-dir", default="./test_output", help="Directory to save train.jsonl and val.jsonl")
-    parser.add_argument("--style", default="鲁迅风格", help="Target style name")
     parser.add_argument("--chunk-size", type=int, default=128, help="Semantic chunk target length")
     parser.add_argument("--cache-dir", default="./cache/preprocess", help="Cache directory for preprocessing results")
+    parser.add_argument("--style-transfer-num", type=int, default=400, help="Number of style transfer samples")
+    parser.add_argument("--continuation-num", type=int, default=200, help="Number of continuation samples")
+    parser.add_argument("--generation-num", type=int, default=200, help="Number of generation samples")
+    parser.add_argument("--explanation-num", type=int, default=200, help="Number of explanation samples")
+    parser.add_argument("--summarization-num", type=int, default=200, help="Number of summarization samples")
     args = parser.parse_args()
     print(args, end='\n')
 
@@ -62,8 +67,13 @@ async def main():
         raw_text=raw_text,
         inference_service=inference_service,
         target_length=args.chunk_size,
-        train_ratio=0.95,
+        train_ratio=0.90,
         skip_clean=True,
+        style_transfer_num=args.style_transfer_num,
+        continuation_samples_num=args.continuation_num,
+        generation_samples_num=args.generation_num,
+        explanation_samples_num=args.explanation_num,
+        summarization_samples_num=args.summarization_num,
     )
 
     train_data = result["train_data"]

@@ -468,7 +468,7 @@ const form = reactive({
   parent_style_id: null,
   config: {
     learning_rate: 0.0002,
-    num_epochs: 3,
+    num_epochs: 2,
     batch_size: 1,
     max_length: 512
   }
@@ -538,7 +538,7 @@ const estimatedTime = computed(() => {
 
   // 总时间计算
   const numEpochs = form.config.num_epochs
-  const totalTime = (baseTime + preprocessingTime + (timePerEpoch * numEpochs) + evalTime) * continueTrainingFactor
+  const totalTime = 10*(baseTime + preprocessingTime + (timePerEpoch * numEpochs) + evalTime) * continueTrainingFactor
 
   // 格式化输出
   if (totalTime < 1) {
