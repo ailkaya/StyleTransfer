@@ -154,7 +154,7 @@
                   <el-input
                     v-model="input"
                     type="textarea"
-                    :rows="5"
+                    :autosize="{ minRows: 2, maxRows: 8 }"
                     placeholder="请输入您的需求，例如：
 - 续写：请续写以下内容：夕阳西下，...
 - 风格转换：将以下文字转换为目标风格：...
