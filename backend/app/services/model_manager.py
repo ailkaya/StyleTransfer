@@ -143,7 +143,6 @@ class GlobalModelManager:
             "quantization_config": bnb_config,
             "device_map": "auto",
             "trust_remote_code": True,
-            "torch_dtype": torch.bfloat16,
         }
         if attn_implementation is not None:
             model_kwargs["attn_implementation"] = attn_implementation

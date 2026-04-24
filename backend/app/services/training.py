@@ -73,7 +73,7 @@ class TrainingService:
             "gradient_accumulation_steps": 8,
             # 梯度累积步数（模拟更大batch）
             # 实际batch = batch_size × accumulation
-            # 这里等效 batch = 2 × 8 = 16
+            # 这里等效 batch = 1 × 8 = 8
             # 用于在显存不足时扩大batch
 
 
@@ -224,7 +224,7 @@ class TrainingService:
                 TrainingArguments,
                 Trainer,
                 TrainerCallback,
-                DataCollatorForLanguageModeling,
+                default_data_collator,
                 EarlyStoppingCallback,
             )
             from peft import (
@@ -435,11 +435,9 @@ class TrainingService:
             val_dataset = val_dataset.map(tokenize_fn, remove_columns=val_dataset.column_names)
 
             # ========= collator =========
-            data_collator = DataCollatorForLanguageModeling(
-                tokenizer=tokenizer,
-                mlm=False,
-                pad_to_multiple_of=8
-            )
+            # 数据已在 tokenize_fn 中完成 padding，直接用 default_data_collator
+            # 避免 DataCollatorForLanguageModeling 覆盖自定义 labels（chat mask）
+            data_collator = default_data_collator
 
             # ========= 训练参数 =========
             train_samples = len(train_dataset)

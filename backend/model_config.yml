@@ -37,7 +37,7 @@ base_models:
     hf_name: "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
     display_name: "DeepSeek-R1-Distill-1.5B"
     type: "qwen"
-    description: "基于Qwen架构经R1深度蒸馏，数学推理与代码生成显著增强，支持复杂逻辑链思考"
+    description: "基于Qwen架构经R1深度蒸馏，支持复杂逻辑链思考"
     params: "1.5B参数"
     speed: "极速推理"
     speed_value: 1200
