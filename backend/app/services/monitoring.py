@@ -35,7 +35,7 @@ try:
     _PYNVML_AVAILABLE = True
 except ImportError:
     _PYNVML_AVAILABLE = False
-    logger.warning("pynvml not installed, detailed GPU monitoring disabled")
+    logger.warning("nvidia-ml-py not installed, detailed GPU monitoring disabled")
 
 
 # ------------------------

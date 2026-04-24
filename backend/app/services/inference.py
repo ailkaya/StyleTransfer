@@ -59,7 +59,7 @@ class InferenceService:
 
     def _generate_system_prompt(self, style_tag: str) -> str:
         """根据风格配置生成系统提示词"""
-        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。请根据用户要求生成文本，保持该风格的一致性。不要使用深度思考。"
+        return f"你是<{style_tag}>的文章生成助手，擅长模仿该风格的写作特点。请根据用户要求生成文本，保持该风格的一致性。不要使用深度思考。输出中不要包含注释等无用信息。"
 
     def _build_messages_with_history(
         self,
