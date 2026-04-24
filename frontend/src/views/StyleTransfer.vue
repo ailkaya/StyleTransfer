@@ -127,63 +127,87 @@
         <!-- Input Area -->
         <div class="input-panel">
           <div class="input-container">
-            <div class="input-row">
-              <div class="input-column">
-                <div class="field-header">
-                  <span class="field-label">
-                    <el-icon><EditPen /></el-icon>
-                    输入
-                  </span>
-                  <div class="field-actions">
-                    <el-upload
-                      action=""
-                      :auto-upload="false"
-                      :show-file-list="false"
-                      :on-change="handleFileChange"
-                      accept=".txt,.md,.docx"
-                    >
-                      <el-button link type="primary" size="small" :icon="Upload">
-                        上传
-                      </el-button>
-                    </el-upload>
-                    <span class="char-count">{{ input.length }}</span>
+            <!-- Expanded State -->
+            <template v-if="!isInputCollapsed">
+              <div class="input-row">
+                <div class="input-column">
+                  <div class="field-header">
+                    <span class="field-label">
+                      <el-icon><EditPen /></el-icon>
+                      输入
+                    </span>
+                    <div class="field-actions">
+                      <el-upload
+                        action=""
+                        :auto-upload="false"
+                        :show-file-list="false"
+                        :on-change="handleFileChange"
+                        accept=".txt,.md,.docx"
+                      >
+                        <el-button link type="primary" size="small" :icon="Upload">
+                          上传
+                        </el-button>
+                      </el-upload>
+                      <span class="char-count">{{ input.length }}</span>
+                    </div>
                   </div>
-                </div>
-                <el-input
-                  v-model="input"
-                  type="textarea"
-                  :rows="5"
-                  placeholder="请输入您的需求，例如：
+                  <el-input
+                    v-model="input"
+                    type="textarea"
+                    :rows="5"
+                    placeholder="请输入您的需求，例如：
 - 续写：请续写以下内容：夕阳西下，...
 - 风格转换：将以下文字转换为目标风格：...
 - 写作：请写一段关于「故乡」的文字
 - 解释：请解释什么是「存在主义」
 - 总结：请总结以下内容：..."
-                  resize="none"
-                  class="custom-textarea"
-                />
+                    resize="none"
+                    class="custom-textarea"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div class="input-footer">
-              <el-button
-                link
-                size="small"
-                :icon="Delete"
-                @click="clearHistory"
-              >
-                清空
-              </el-button>
-              <el-button
-                type="primary"
-                :icon="Position"
-                :loading="messageStore.sending"
-                :disabled="!canSend"
-                class="send-button"
-                @click="sendMessage"
-              >
-                发送
-              </el-button>
+              <div class="input-footer">
+                <el-button
+                  link
+                  size="small"
+                  :icon="Delete"
+                  @click="clearHistory"
+                >
+                  清空
+                </el-button>
+                <div class="footer-right">
+                  <el-button
+                    link
+                    size="small"
+                    :icon="ArrowUp"
+                    @click="isInputCollapsed = true"
+                  >
+                    收起
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    :icon="Position"
+                    :loading="messageStore.sending"
+                    :disabled="!canSend"
+                    class="send-button"
+                    @click="sendMessage"
+                  >
+                    发送
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <!-- Collapsed State -->
+            <div v-else class="collapsed-bar" @click="isInputCollapsed = false">
+              <div class="collapsed-content">
+                <el-icon><EditPen /></el-icon>
+                <span class="collapsed-placeholder">
+                  {{ input ? input.slice(0, 40) + (input.length > 40 ? '...' : '') : '点击展开输入框...' }}
+                </span>
+              </div>
+              <el-icon class="collapsed-icon"><ArrowDown /></el-icon>
             </div>
           </div>
         </div>
@@ -225,7 +249,9 @@ import {
   CopyDocument,
   Clock,
   Plus,
-  Switch
+  Switch,
+  ArrowUp,
+  ArrowDown
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -265,6 +291,7 @@ watch(() => styleStore.availableStyles.length, (newLength) => {
   }
 })
 const input = ref('')
+const isInputCollapsed = ref(false)
 const messagesContainer = ref(null)
 
 const currentStyle = computed(() =>
@@ -879,6 +906,44 @@ watch(() => messageStore.messages.length, () => {
 .empty-card p {
   color: var(--text-secondary);
   margin: 0 0 24px;
+}
+
+/* Collapsed Bar */
+.collapsed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  transition: background 0.2s ease;
+}
+
+.collapsed-bar:hover {
+  background: var(--border-color);
+}
+
+.collapsed-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.collapsed-placeholder {
+  color: var(--text-secondary);
+}
+
+.collapsed-icon {
+  color: var(--text-muted);
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Responsive */
