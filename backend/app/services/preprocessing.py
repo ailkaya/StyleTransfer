@@ -549,7 +549,7 @@ class DataPreprocessor:
             # 第一步：生成第一段文本（input）
             prompt_a = f"""{style_guide}
 
-请根据上述风格指南，写一段关于"{topic}"的文字作为文章开头，字数控制在60字以内。
+请根据上述风格指南，创作一段与"{topic}"相关的文字，可以是场景描写、叙事片段、抒情随笔、对话摘录或议论观点等，不要写成百科解释。字数控制在60字以内。
 
 请仅输出正文，不要解释。"""
             try:
@@ -607,7 +607,7 @@ class DataPreprocessor:
         for topic in selected:
             prompt = f"""{style_guide}
 
-请根据上述风格指南，写一段关于"{topic}"的文字，字数控制在60字以内。
+请根据上述风格指南，创作一段与"{topic}"相关的文字。可以是场景描写、叙事片段、抒情随笔、对话摘录或议论观点等，不要写成百科解释。字数控制在60字以内。
 
 请仅输出正文，不要解释。"""
             try:
@@ -618,7 +618,7 @@ class DataPreprocessor:
                     max_tokens=256
                 )
                 samples.append({
-                    "instruction": f"请用'{style_name}'风格写一段关于'{topic}'的文字。",
+                    "instruction": f"请用'{style_name}'风格创作一段与'{topic}'相关的文字。",
                     "input": "",
                     "output": output.strip(),
                 })
@@ -727,7 +727,7 @@ class DataPreprocessor:
             # 第一步：生成一段原文风格的文本（input）
             prompt_input = f"""{style_guide}
 
-请根据上述风格指南，写一段关于"{topic}"的文字，字数控制在80字以内。
+请根据上述风格指南，创作一段与"{topic}"相关的文字。可以是场景描写、叙事片段、抒情随笔、对话摘录或议论观点等，不要写成百科解释。字数控制在80字以内。
 
 请仅输出正文，不要解释。"""
             try:
@@ -955,13 +955,13 @@ B: {neutral}
             if source_style_guide:
                 prompt_neutral = f"""{source_style_guide}
 
-请根据上述风格指南，写一段关于"{topic}"的文字，字数控制在60字以内。
+请根据上述风格指南，创作一段与"{topic}"相关的文字。可以是场景描写、叙事片段、抒情随笔、对话摘录或议论观点等，不要写成百科解释。字数控制在60字以内。
 
 请仅输出正文，不要解释。"""
                 neutral_system = "你是一个写作助手，只输出符合指定风格的文本。"
                 reverse_instruction = "请将文本改写为原文风格，保持原意，不扩写。"
             else:
-                prompt_neutral = f"""请用中性、客观、现代的语言写一段关于"{topic}"的文字，字数控制在60字以内。不要使用文学性修辞。
+                prompt_neutral = f"""请用中性、客观、现代的语言创作一段与"{topic}"相关的文字。可以是简单叙述、客观描写或日常陈述等，不要写成百科解释。字数控制在60字以内。不要使用文学性修辞。
 
 请仅输出正文，不要解释。"""
                 neutral_system = "你是一个中性文本写作助手，只输出简单直接的文本。"
@@ -1336,14 +1336,24 @@ B: {neutral}
 
         logger.info(f"Adjusting {len(samples)} samples based on comment: {comment[:50]}...")
 
-        # 2. 对每个样本进行调整
+        # 2. 对每个样本进行调整（带进度条）
         adjusted_samples = []
-        for sample in samples:
-            adjusted = await self._apply_comment_adjustment(sample, comment, inference_service)
-            if adjusted:
-                adjusted_samples.append(adjusted)
-            else:
-                adjusted_samples.append(sample)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            adj_task = progress.add_task("[red]调整样本", total=len(samples))
+            for sample in samples:
+                adjusted = await self._apply_comment_adjustment(sample, comment, inference_service)
+                if adjusted:
+                    adjusted_samples.append(adjusted)
+                else:
+                    adjusted_samples.append(sample)
+                progress.update(adj_task, advance=1)
 
         return adjusted_samples
 
