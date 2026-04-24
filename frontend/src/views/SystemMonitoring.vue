@@ -95,35 +95,45 @@
 
         </div>
 
-        <div v-if="stats.gpu.available" class="gpu-charts">
-          <!-- Current snapshot row -->
-          <div class="gpu-current-stats">
-            <div
-              v-for="gpu in stats.gpu.gpus"
-              :key="gpu.id"
-              class="gpu-stat-item"
-            >
-              <div class="gpu-stat-header">
-                <el-icon :size="14"><VideoCamera /></el-icon>
-                <span class="gpu-stat-name">{{ gpu.name }}</span>
+        <div v-if="stats.gpu.available" class="metrics-grid">
+          <div
+            v-for="gpu in stats.gpu.gpus"
+            :key="gpu.id"
+            class="metric-card"
+          >
+            <!-- Header -->
+            <div class="metric-header">
+              <div class="metric-icon gpu-icon">
+                <el-icon :size="20"><VideoCamera /></el-icon>
               </div>
-              <div class="gpu-stat-values">
-                <span
-                  class="gpu-stat-value"
-                  :style="{ color: getPercentColor(gpu.utilization_percent ?? 0) }"
-                >
-                  {{ gpu.utilization_percent !== null ? gpu.utilization_percent + '%' : '-' }}
-                </span>
-                <span class="gpu-stat-mem">
-                  {{ gpu.allocated_mb.toLocaleString() }} / {{ gpu.total_mb.toLocaleString() }} MB
-                </span>
+              <div class="metric-title">
+                <h3>GPU {{ gpu.id }}</h3>
+                <p>{{ gpu.name }}</p>
               </div>
+            </div>
+
+            <!-- Body -->
+            <div class="metric-body">
+              <!-- 利用率 -->
+              <div
+                class="percent-value"
+                :style="{ color: getPercentColor(gpu.utilization_percent ?? 0) }"
+              >
+                {{ gpu.utilization_percent !== null ? gpu.utilization_percent.toFixed(0) + '%' : '-' }}
+              </div>
+
+              <!-- 进度条（显存使用） -->
               <el-progress
                 :percentage="Math.min(((gpu.allocated_mb / gpu.total_mb) * 100) || 0, 100)"
                 :color="progressColors"
-                :stroke-width="6"
+                :stroke-width="12"
                 :show-text="false"
               />
+
+              <!-- 显存信息 -->
+              <p style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+                {{ gpu.allocated_mb.toLocaleString() }} / {{ gpu.total_mb.toLocaleString() }} MB
+              </p>
             </div>
           </div>
         </div>
@@ -393,53 +403,6 @@ export default {
   align-items: center;
   justify-content: center;
   color: white;
-}
-
-/* GPU Current Stats */
-.gpu-current-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.gpu-stat-item {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  padding: 14px 16px;
-  border: 1px solid var(--border-color);
-}
-
-.gpu-stat-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.gpu-stat-name {
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-
-.gpu-stat-values {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.gpu-stat-value {
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.gpu-stat-mem {
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 /* Empty State */

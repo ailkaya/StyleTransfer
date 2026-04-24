@@ -47,6 +47,7 @@ mypy==1.7.1
 # System monitoring
 psutil>=5.9.0
 nvidia-ml-py>=12.535.0
+pynvml>=13.0.1
 
 # Local model training and inference (QLoRA)
 torch>=2.0.0

@@ -253,11 +253,11 @@ class GlobalModelManager:
 
         with self._adapter_lock:
             cached = self._adapter_cache.get(style_id)
-            if cached is not None:
-                cached.last_used = time.time()
-                logger.info(f"[ModelManager] adapter cache hit: {style_id}")
-                tokenizer = self._get_tokenizer_unsafe(cached.base_model_name)
-                return cached.model, tokenizer
+            # if cached is not None:
+            #     cached.last_used = time.time()
+            #     logger.info(f"[ModelManager] adapter cache hit: {style_id}")
+            #     tokenizer = self._get_tokenizer_unsafe(cached.base_model_name)
+            #     return cached.model, tokenizer
 
             # Load base model first (increments ref_count)
             base_model, tokenizer = self.load_model(
