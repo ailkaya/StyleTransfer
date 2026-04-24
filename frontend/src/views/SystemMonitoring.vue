@@ -93,17 +93,6 @@
           <el-tag v-if="stats.gpu.available" size="small" type="success">{{ stats.gpu.count }} 设备</el-tag>
           <el-tag v-else size="small" type="info">未检测到</el-tag>
 
-          <el-radio-group
-            v-if="stats.gpu.available"
-            v-model="timeRange"
-            size="small"
-            class="time-range-selector"
-          >
-            <el-radio-button :label="30 * 60 * 1000">30分钟</el-radio-button>
-            <el-radio-button :label="60 * 60 * 1000">1小时</el-radio-button>
-            <el-radio-button :label="2 * 60 * 60 * 1000">2小时</el-radio-button>
-            <el-radio-button :label="3 * 60 * 60 * 1000">3小时</el-radio-button>
-          </el-radio-group>
         </div>
 
         <div v-if="stats.gpu.available" class="gpu-charts">
@@ -137,18 +126,6 @@
               />
             </div>
           </div>
-
-          <!-- Utilization Chart -->
-          <div class="chart-container">
-            <div class="chart-title">GPU 利用率趋势 (%)</div>
-            <v-chart class="chart" :option="utilizationChartOption" autoresize />
-          </div>
-
-          <!-- Memory Chart -->
-          <div class="chart-container">
-            <div class="chart-title">GPU 显存占用趋势 (MB)</div>
-            <v-chart class="chart" :option="memoryChartOption" autoresize />
-          </div>
         </div>
 
         <div v-else class="empty-state">
@@ -176,20 +153,7 @@ import {
   CircleCheck,
   CircleClose
 } from '@element-plus/icons-vue'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart } from 'echarts/charts'
-import {
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DataZoomComponent,
-  MarkLineComponent
-} from 'echarts/components'
-import VChart from 'vue-echarts'
 import { monitoringApi } from '@/api/monitoring'
-
-use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkLineComponent])
 
 const stats = ref({
   cpu: { available: false },
@@ -198,8 +162,6 @@ const stats = ref({
 })
 const loading = ref(false)
 const lastFetchTime = ref(null)
-const gpuHistory = ref([])
-const timeRange = ref(30 * 60 * 1000)
 
 const progressColors = [
   { color: '#10b981', percentage: 60 },
@@ -224,112 +186,6 @@ const connectionStatus = computed(() => {
   return { text: '更新延迟', type: 'warning', icon: 'CircleClose' }
 })
 
-const gpuColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272']
-
-const utilizationChartOption = computed(() => {
-  const cutoff = Date.now() - timeRange.value
-  const filtered = gpuHistory.value.filter(d => d.timestamp >= cutoff)
-  const gpus = stats.value.gpu.gpus || []
-
-  return {
-    tooltip: {
-      trigger: 'axis',
-      formatter: (params) => {
-        const time = new Date(params[0].value[0]).toLocaleTimeString()
-        let html = `<div style="font-weight:bold;margin-bottom:4px">${time}</div>`
-        params.forEach(p => {
-          const val = p.value[1]
-          html += `<div>${p.marker} ${p.seriesName}: ${val !== null ? val + '%' : '-'}</div>`
-        })
-        return html
-      }
-    },
-    legend: {
-      data: gpus.map(g => g.name),
-      bottom: 0,
-      textStyle: { fontSize: 12 }
-    },
-    grid: { left: 50, right: 30, top: 20, bottom: 36 },
-    xAxis: {
-      type: 'time',
-      axisLabel: { formatter: '{HH}:{mm}' },
-      splitLine: { show: false }
-    },
-    yAxis: {
-      type: 'value',
-      name: '利用率 %',
-      min: 0,
-      max: 100,
-      splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
-    },
-    dataZoom: [{ type: 'inside' }],
-    series: gpus.map((gpu, idx) => ({
-      name: gpu.name,
-      type: 'line',
-      smooth: true,
-      symbol: 'none',
-      lineStyle: { width: 2 },
-      itemStyle: { color: gpuColors[idx % gpuColors.length] },
-      data: filtered.map(d => {
-        const g = d.gpus.find(x => x.id === gpu.id)
-        return [d.timestamp, g?.utilization_percent ?? null]
-      }).filter(p => p[1] !== null)
-    }))
-  }
-})
-
-const memoryChartOption = computed(() => {
-  const cutoff = Date.now() - timeRange.value
-  const filtered = gpuHistory.value.filter(d => d.timestamp >= cutoff)
-  const gpus = stats.value.gpu.gpus || []
-
-  return {
-    tooltip: {
-      trigger: 'axis',
-      formatter: (params) => {
-        const time = new Date(params[0].value[0]).toLocaleTimeString()
-        let html = `<div style="font-weight:bold;margin-bottom:4px">${time}</div>`
-        params.forEach(p => {
-          const val = p.value[1]
-          html += `<div>${p.marker} ${p.seriesName}: ${val !== null ? val.toLocaleString() + ' MB' : '-'}</div>`
-        })
-        return html
-      }
-    },
-    legend: {
-      data: gpus.map(g => g.name),
-      bottom: 0,
-      textStyle: { fontSize: 12 }
-    },
-    grid: { left: 70, right: 30, top: 20, bottom: 36 },
-    xAxis: {
-      type: 'time',
-      axisLabel: { formatter: '{HH}:{mm}' },
-      splitLine: { show: false }
-    },
-    yAxis: {
-      type: 'value',
-      name: '显存 (MB)',
-      min: 0,
-      splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
-    },
-    dataZoom: [{ type: 'inside' }],
-    series: gpus.map((gpu, idx) => ({
-      name: gpu.name,
-      type: 'line',
-      smooth: true,
-      symbol: 'none',
-      lineStyle: { width: 2 },
-      areaStyle: { opacity: 0.1 },
-      itemStyle: { color: gpuColors[idx % gpuColors.length] },
-      data: filtered.map(d => {
-        const g = d.gpus.find(x => x.id === gpu.id)
-        return [d.timestamp, g?.allocated_mb ?? null]
-      }).filter(p => p[1] !== null)
-    }))
-  }
-})
-
 async function fetchStats() {
   loading.value = true
   try {
@@ -338,22 +194,7 @@ async function fetchStats() {
       stats.value = res.data
       lastFetchTime.value = Date.now()
 
-      if (res.data.gpu?.available && res.data.gpu.gpus?.length) {
-        gpuHistory.value.push({
-          timestamp: Date.now(),
-          gpus: res.data.gpu.gpus.map(g => ({
-            id: g.id,
-            name: g.name,
-            allocated_mb: g.allocated_mb,
-            total_mb: g.total_mb,
-            utilization_percent: g.utilization_percent
-          }))
-        })
-        // Keep at most 3 hours of data (1080 points at 10s interval)
-        const maxAge = 3 * 60 * 60 * 1000
-        const cutoff = Date.now() - maxAge
-        gpuHistory.value = gpuHistory.value.filter(d => d.timestamp >= cutoff)
-      }
+      // GPU 数据仅用于实时展示，不保留历史趋势
     }
   } catch (error) {
     console.error('Failed to fetch system stats:', error)
@@ -389,12 +230,10 @@ onUnmounted(() => {
 
 <script>
 import { VideoCamera } from '@element-plus/icons-vue'
-import VChart from 'vue-echarts'
 
 export default {
   components: {
-    Gpu: VideoCamera,
-    VChart
+    Gpu: VideoCamera
   }
 }
 </script>
@@ -556,10 +395,6 @@ export default {
   color: white;
 }
 
-.time-range-selector {
-  margin-left: auto;
-}
-
 /* GPU Current Stats */
 .gpu-current-stats {
   display: grid;
@@ -605,32 +440,6 @@ export default {
 .gpu-stat-mem {
   font-size: 12px;
   color: var(--text-secondary);
-}
-
-/* Charts */
-.gpu-charts {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.chart-container {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  padding: 16px;
-}
-
-.chart-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-}
-
-.chart {
-  width: 100%;
-  height: 260px;
 }
 
 /* Empty State */
@@ -680,12 +489,6 @@ export default {
 
   .gpu-current-stats {
     grid-template-columns: 1fr;
-  }
-
-  .time-range-selector {
-    margin-left: 0;
-    width: 100%;
-    margin-top: 8px;
   }
 
   .section-header {
