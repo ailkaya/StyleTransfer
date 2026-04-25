@@ -21,6 +21,11 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
       },
+      '/explore-api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/explore-api/, ''),
+      },
     },
   },
 })

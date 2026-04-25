@@ -245,13 +245,21 @@ def train_style_model(
 
         # Run full preprocessing pipeline
         inference_service = get_inference_service()
-        preprocessed = asyncio.run(preprocessor.process(
-            raw_text=training_text,
-            source_text=source_text,
-            inference_service=inference_service,
-            # target_length=config.get("chunk_size", 512),
-            train_ratio=0.95
-        ))
+        process_kwargs = {
+            "raw_text": training_text,
+            "source_text": source_text,
+            "inference_service": inference_service,
+            "train_ratio": 0.95,
+        }
+        if settings.SIMPLE_PREPROCESSING:
+            process_kwargs.update({
+                "style_transfer_num": 1,
+                "continuation_samples_num": 1,
+                "generation_samples_num": 1,
+                "explanation_samples_num": 1,
+                "summarization_samples_num": 1,
+            })
+        preprocessed = asyncio.run(preprocessor.process(**process_kwargs))
 
         logger.info(f"Preprocessing complete:")
         logger.info(f"  - Language: {preprocessed['metadata']['language']}")

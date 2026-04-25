@@ -4,6 +4,7 @@ import StyleTraining from '@/views/StyleTraining.vue'
 import Evaluation from '@/views/Evaluation.vue'
 import StyleManagement from '@/views/StyleManagement.vue'
 import SystemMonitoring from '@/views/SystemMonitoring.vue'
+import Explore from '@/views/Explore.vue'
 
 const routes = [
   {
@@ -39,6 +40,12 @@ const routes = [
     name: 'SystemMonitoring',
     component: SystemMonitoring,
     meta: { title: '系统监控', icon: 'Monitor', isManagement: true }
+  },
+  {
+    path: '/explore',
+    name: 'Explore',
+    component: Explore,
+    meta: { title: '探索', icon: 'Compass' }
   }
 ]
 

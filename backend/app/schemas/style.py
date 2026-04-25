@@ -34,6 +34,7 @@ class StyleInDB(StyleBase):
     base_model: str
     adapter_path: Optional[str] = None
     status: str
+    source: str = "local"
     created_at: datetime
     updated_at: datetime
 
@@ -60,7 +61,9 @@ class StyleListItem(BaseModel):
     name: str
     description: Optional[str] = None
     target_style: str
+    base_model: str = "llama-2-3b"
     status: str
+    source: str = "local"
     task_status: Optional[str] = None  # Latest task status
     created_at: datetime
 

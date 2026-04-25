@@ -7,6 +7,7 @@ from .tasks import router as tasks_router
 from .messages import router as messages_router
 from .evaluation import router as evaluation_router
 from .monitoring import router as monitoring_router
+from .explore import router as explore_router
 
 # Create main API router
 api_router = APIRouter()
@@ -18,5 +19,6 @@ api_router.include_router(tasks_router)
 api_router.include_router(messages_router)
 api_router.include_router(evaluation_router)
 api_router.include_router(monitoring_router)
+api_router.include_router(explore_router)
 
 __all__ = ["api_router"]

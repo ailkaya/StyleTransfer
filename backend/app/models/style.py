@@ -60,6 +60,12 @@ class Style(Base):
         default="pending",
         comment="状态: pending/preprocessing/training/completed/failed/available/evaluating"
     )
+    source: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="local",
+        comment="来源: local(本地训练) / explored(从探索拉取)"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

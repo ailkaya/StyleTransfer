@@ -73,6 +73,12 @@ export const useMessageStore = defineStore('message', () => {
         history: history.length > 0 ? history : undefined
       })
       
+      // Update temp user message with real UUID from server
+      const tempIndex = messages.value.findIndex(m => m.id === userMessage.id)
+      if (tempIndex !== -1 && response.data.user_message) {
+        messages.value[tempIndex] = response.data.user_message
+      }
+
       // Add assistant response
       messages.value.push(response.data.message)
       // console.log('Response:', response.data)

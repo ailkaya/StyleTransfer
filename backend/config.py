@@ -64,11 +64,15 @@ class Settings(BaseSettings):
     # Training
     TRAINING_MOCK_MODE: bool = True
     TRAINING_USE_CHUNK_DATA: bool = True
+    SIMPLE_PREPROCESSING: bool = False
 
     # Task Recovery
     RECOVER_PENDING_TASKS_ON_STARTUP: bool = True
 
     ENABLE_MESSAGE_HISTORY: bool = True
+
+    # Explore Service
+    EXPLORE_SERVICE_URL: str = "http://localhost:8001"
 
     # Model Manager - GPU memory reservation ratio (0.15 ~ 0.20)
     MODEL_RESERVED_GPU_RATIO: float = 0.18

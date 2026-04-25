@@ -539,7 +539,7 @@ onMounted(async () => {
       models.value = res.data
       // Set default base_model to first available model
       if (models.value.length > 0 && !form.base_model) {
-        form.base_model = models.value[0].id
+        form.base_model = models.value[0].name
       }
     }
   } catch (e) {

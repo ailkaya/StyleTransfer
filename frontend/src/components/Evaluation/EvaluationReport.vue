@@ -17,7 +17,7 @@
           </el-tag>
         </div>
       </div>
-      <div class="header-actions">
+      <div v-if="showActions" class="header-actions">
         <el-button
           :icon="RefreshRight"
           :loading="reEvaluating"
@@ -162,7 +162,7 @@
     </div>
 
     <!-- User Comment Section -->
-    <div class="comment-section">
+    <div v-if="showComment" class="comment-section">
       <div class="section-title">
         <el-icon><ChatDotRound /></el-icon>
         <span>用户评价</span>
@@ -303,6 +303,14 @@ const props = defineProps({
       samples: [],
       comment: null
     })
+  },
+  showActions: {
+    type: Boolean,
+    default: true
+  },
+  showComment: {
+    type: Boolean,
+    default: true
   }
 })
 

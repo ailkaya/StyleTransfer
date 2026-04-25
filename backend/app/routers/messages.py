@@ -145,6 +145,8 @@ async def create_message(
         requirement="",
     )
     db.add(user_message)
+    await db.flush()
+    await db.refresh(user_message)
 
     # Save assistant response
     logger.debug(f"Saving assistant response")
@@ -167,6 +169,7 @@ async def create_message(
         message="success",
         data={
             "message": MessageResponse.model_validate(assistant_message),
+            "user_message": MessageResponse.model_validate(user_message),
             "style_name": style.name,
         },
         timestamp=datetime.utcnow(),

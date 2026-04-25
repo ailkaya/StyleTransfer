@@ -77,7 +77,9 @@ async def list_styles(
             "name": style.name,
             "description": style.description,
             "target_style": style.target_style,
+            "base_model": style.base_model,
             "status": style.status,
+            "source": style.source,
             "task_status": latest_task_map.get(style.id),
             "created_at": style.created_at,
         }

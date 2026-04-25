@@ -10,7 +10,12 @@
       </div>
       <div class="list-text">
         <span class="list-name">{{ style.name }}</span>
-        <span class="list-target">{{ style.target_style }}</span>
+        <span class="list-target">
+          {{ style.target_style }}
+          <el-tag v-if="style.source === 'explored'" size="small" type="warning" class="source-tag">
+            <el-icon><Compass /></el-icon> 探索
+          </el-tag>
+        </span>
       </div>
     </div>
 
@@ -62,7 +67,8 @@ import {
   Collection,
   Edit,
   Delete,
-  VideoPlay
+  VideoPlay,
+  Compass
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 
@@ -213,6 +219,13 @@ const formattedTime = computed(() => {
   font-size: 12px;
   color: #667eea;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-tag {
+  margin-left: 4px;
 }
 
 .list-status {
