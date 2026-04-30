@@ -208,60 +208,58 @@ def _extract_keywords_from_text(text: str, top_n: int = 50) -> List[str]:
     return [word for word, freq in sorted_words[:top_n]]
 
 
-def _estimate_style_match(task_id: str, target_text: str, target_style: str) -> float:
-    """Estimate style matching score based on keywords."""
-    style_keywords = {
-        '幽默': ['哈哈', '笑话', '有趣', '搞笑', '逗', '乐', '笑', '好玩', '滑稽', '诙谐'],
-        '严肃': ['郑重', '严肃', '认真', '严谨', '正式', '庄重', '严格', '重要', '重大'],
-        '学术': ['研究表明', '实验', '数据', '分析', '理论', '方法', '结论', '证明', '根据'],
-        '文艺': ['诗意', '优美', '细腻', '浪漫', '意境', '情怀', '灵动', '雅致'],
-        '口语': ['咱们', '是吧', '那个', '这个', '哎呀', '嗯', '啊', '呢', '吧', '啦'],
-        '商务': ['合作', '项目', '方案', '客户', '市场', '战略', '效益', '优化', '提升'],
-        '新闻': ['报道', '记者', '据悉', '最新消息', '事件', '发布', '声明', '指出'],
-    }
+async def _estimate_style_match(
+    task_id: str,
+    target_text: str,
+    target_style: str,
+    inference_service=None
+) -> float:
+    """Estimate style matching score by calling LLM API.
 
-    keywords = style_keywords.get(target_style, [])
+    Uses a large language model to judge how well the target_text matches
+    the target_style, returning a score from 1 to 100.
+    """
+    if inference_service is None:
+        logger.warning("No inference_service provided for style match evaluation, using fallback score")
+        return 70.0
 
-    # If predefined keywords not found, extract from training data
-    if not keywords:
-        try:
-            # Use DatabaseOperations for database access
-            db = DatabaseOperations()
-            try:
-                task = db.get_task(task_id)
+    prompt = (
+        f"请判断以下文本是否符合『{target_style}』风格。\n\n"
+        f"文本：{target_text}\n\n"
+        f"请从1到100打分，1表示完全不符合，100表示完全符合。"
+        f"只输出一个1-100之间的整数分数，不要有任何解释。"
+    )
 
-                if task and task.training_data_path:
-                    original_file = os.path.join(task.training_data_path, 'original.txt')
-                    if os.path.exists(original_file):
-                        with open(original_file, 'r', encoding='utf-8') as f:
-                            original_text = f.read()
-                        # Extract keywords from original training text
-                        keywords = _extract_keywords_from_text(original_text, top_n=50)
-                        logger.info(f"Extracted {len(keywords)} keywords from training data for style '{target_style}'")
-                    else:
-                        logger.warning(f"Original file not found: {original_file}")
-                        return 70.0
-                else:
-                    logger.warning(f"No training_data_path found for task {task_id}")
-                    return 70.0
-            finally:
-                db.close()
-        except Exception as e:
-            logger.error(f"Failed to extract keywords from training data: {e}")
+    try:
+        result = await inference_service.call_llm_raw(
+            prompt=prompt,
+            system_prompt="你是一个专业的文学风格评审专家，只输出1-100的整数分数。",
+            temperature=0.1,
+            max_tokens=10,
+        )
+
+        # Extract the first integer from the response
+        match = re.search(r'\b(\d{1,3})\b', result.strip())
+        if match:
+            score = int(match.group(1))
+            score = max(1, min(100, score))
+            logger.info(f"Style match score for '{target_style}': {score}")
+            return float(score)
+        else:
+            logger.warning(f"Could not parse score from LLM response: {result}")
             return 70.0
-
-    text_lower = target_text.lower()
-    keyword_count = sum(1 for kw in keywords if kw in text_lower)
-    score = 50 + keyword_count * 10
-    return min(score, 100.0)
+    except Exception as e:
+        logger.error(f"LLM style match evaluation failed: {e}")
+        return 70.0
 
 
-def calculate_metrics(
+async def calculate_metrics(
     task_id: str,
     source_texts: List[str],
     target_texts: List[str],
     target_style: str,
-    response_times: Optional[List[float]] = None
+    response_times: Optional[List[float]] = None,
+    inference_service=None
 ) -> EvaluationMetrics:
     """
     Calculate evaluation metrics between source and target text arrays.
@@ -271,6 +269,7 @@ def calculate_metrics(
         target_texts: List of transformed texts
         target_style: Target style name
         response_times: Optional list of response times
+        inference_service: Optional inference service for LLM-based style evaluation
 
     Returns:
         EvaluationMetrics object
@@ -294,7 +293,7 @@ def calculate_metrics(
     for src, tgt in zip(source_texts, target_texts):
         # semantic_scores.append(_calculate_semantic_similarity(src, tgt))
         char_retentions.append(_calculate_char_retention(src, tgt))
-        style_scores.append(_estimate_style_match(task_id, tgt, target_style))
+        style_scores.append(await _estimate_style_match(task_id, tgt, target_style, inference_service))
         fluency_scores.append(_estimate_fluency(tgt))
 
     length_ratio, avg_source_len, avg_target_len = _calculate_length_ratio(
@@ -505,12 +504,13 @@ class EvaluationService:
             logger.info(f"[Evaluation] No inference service, using source texts as targets")
 
         logger.info(f"[Evaluation] Calculating metrics for {len(source_texts)} sample pairs...")
-        metrics = calculate_metrics(
+        metrics = await calculate_metrics(
             task_id=task_id,
             source_texts=source_texts,
             target_texts=target_texts,
             target_style=style.target_style,
-            response_times=response_times
+            response_times=response_times,
+            inference_service=inference_service
         )
         logger.info(
             f"[Evaluation] Metrics calculated: "

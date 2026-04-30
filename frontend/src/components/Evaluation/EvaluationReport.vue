@@ -40,7 +40,7 @@
           <h3>评估概览</h3>
           <p>基于 {{ data.sample_count }} 组样本的自动评估结果</p>
           <div class="score-tags">
-            <span class="score-tag" :class="getScoreClass(data.bleu_score)">
+            <span class="score-tag" :class="getScoreClass(Math.min(data.bleu_score / 50 * 100, 100))">
               BLEU {{ data.bleu_score }}
             </span>
             <span class="score-tag" :class="getScoreClass(data.bert_score)">
@@ -52,6 +52,30 @@
             <span class="score-tag" :class="getScoreClass(data.fluency_score)">
               文本流畅 {{ data.fluency_score }}%
             </span>
+          </div>
+          <div class="score-formula">
+            <div class="formula-title">综合评分构成</div>
+            <div class="formula-items">
+              <div class="formula-item">
+                <span class="formula-name">BLEU</span>
+                <span class="formula-weight">× 20%</span>
+              </div>
+              <span class="formula-plus">+</span>
+              <div class="formula-item">
+                <span class="formula-name">BERTScore</span>
+                <span class="formula-weight">× 60%</span>
+              </div>
+              <span class="formula-plus">+</span>
+              <div class="formula-item">
+                <span class="formula-name">风格符合</span>
+                <span class="formula-weight">× 10%</span>
+              </div>
+              <span class="formula-plus">+</span>
+              <div class="formula-item">
+                <span class="formula-name">文本流畅</span>
+                <span class="formula-weight">× 10%</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -67,13 +91,13 @@
         <div class="metric-item">
           <div class="metric-header">
             <span class="metric-name">BLEU 得分</span>
-            <span class="metric-value" :class="getScoreClass(data.bleu_score)">
+            <span class="metric-value" :class="getScoreClass(Math.min(data.bleu_score / 50 * 100, 100))">
               {{ data.bleu_score }}
             </span>
           </div>
           <div class="metric-bar">
-            <div class="metric-fill" :class="getScoreClass(data.bleu_score)"
-                 :style="{ width: Math.min(data.bleu_score, 100) + '%' }"></div>
+            <div class="metric-fill" :class="getScoreClass(Math.min(data.bleu_score / 50 * 100, 100))"
+                 :style="{ width: (Math.min(data.bleu_score, 50) / 50 * 100) + '%' }"></div>
           </div>
           <p class="metric-desc">基于样本的 n-gram 重叠度 (Corpus-BLEU)</p>
         </div>
@@ -497,6 +521,55 @@ function getScoreClass(score) {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.score-formula {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.formula-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.formula-items {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.formula-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  min-width: 70px;
+}
+
+.formula-name {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.formula-weight {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.formula-plus {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .score-tag {
