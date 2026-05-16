@@ -307,9 +307,12 @@ async def calculate_metrics(
     avg_style = sum(style_scores) / len(style_scores)
     avg_fluency = sum(fluency_scores) / len(fluency_scores)
 
+    avg_char_retention = sum(char_retentions) / len(char_retentions)
+
     overall = (
         bleu_score * 0.2 +
-        bert_score * 0.6 +
+        bert_score * 0.5 +
+        avg_char_retention * 0.1 +
         avg_style * 0.1 +
         avg_fluency * 0.1
     )

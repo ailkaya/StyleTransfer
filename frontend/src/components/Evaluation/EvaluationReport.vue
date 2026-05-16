@@ -63,7 +63,12 @@
               <span class="formula-plus">+</span>
               <div class="formula-item">
                 <span class="formula-name">BERTScore</span>
-                <span class="formula-weight">× 60%</span>
+                <span class="formula-weight">× 50%</span>
+              </div>
+              <span class="formula-plus">+</span>
+              <div class="formula-item">
+                <span class="formula-name">字符保持</span>
+                <span class="formula-weight">× 10%</span>
               </div>
               <span class="formula-plus">+</span>
               <div class="formula-item">
@@ -144,9 +149,9 @@
           <p class="metric-desc">转换后文本的通顺程度</p>
         </div>
 
-        <!-- <div class="metric-item">
+        <div class="metric-item">
           <div class="metric-header">
-            <span class="metric-name">字符保留率</span>
+            <span class="metric-name">字符保持率</span>
             <span class="metric-value" :class="getScoreClass(data.char_retention)">
               {{ data.char_retention }}%
             </span>
@@ -155,8 +160,8 @@
             <div class="metric-fill" :class="getScoreClass(data.char_retention)"
                  :style="{ width: data.char_retention + '%' }"></div>
           </div>
-          <p class="metric-desc">原文字符在转换后的保留比例</p>
-        </div> -->
+          <p class="metric-desc">原文字符在转换后的保持比例</p>
+        </div>
 
         <div class="metric-item">
           <div class="metric-header">
