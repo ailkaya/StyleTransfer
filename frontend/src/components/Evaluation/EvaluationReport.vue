@@ -96,12 +96,12 @@
         <div class="metric-item">
           <div class="metric-header">
             <span class="metric-name">BLEU 得分</span>
-            <span class="metric-value" :class="getScoreClass(Math.min(data.bleu_score / 50 * 100, 100))">
+            <span class="metric-value" :class="getScoreClass2(Math.min(data.bleu_score / 50 * 100, 100))">
               {{ data.bleu_score }}
             </span>
           </div>
           <div class="metric-bar">
-            <div class="metric-fill" :class="getScoreClass(Math.min(data.bleu_score / 50 * 100, 100))"
+            <div class="metric-fill" :class="getScoreClass2(Math.min(data.bleu_score / 50 * 100, 100))"
                  :style="{ width: (Math.min(data.bleu_score, 50) / 50 * 100) + '%' }"></div>
           </div>
           <p class="metric-desc">基于样本的 n-gram 重叠度 (Corpus-BLEU)</p>
@@ -417,6 +417,12 @@ function getScoreClass(score) {
   if (score >= 60) return 'good'
   return 'poor'
 }
+function getScoreClass2(score) {
+  if (score >= 50) return 'excellent'
+  if (score >= 20) return 'good'
+  return 'poor'
+}
+
 </script>
 
 <style scoped>

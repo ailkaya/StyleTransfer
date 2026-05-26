@@ -75,3 +75,4 @@ logs/
 /backend/run.sh
 /backend/training_text
 /explore-service/explore_uploads
+/count.py

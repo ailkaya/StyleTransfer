@@ -27,6 +27,14 @@ from .message import (
     StyleTransferRequest,
     StyleTransferResponse,
 )
+from .config import (
+    ConfigItem,
+    ConfigCategory,
+    ConfigListResponse,
+    ConfigUpdateItem,
+    ConfigUpdateRequest,
+    ConfigUpdateResponse,
+)
 __all__ = [
     # Common
     "Response",
@@ -56,4 +64,11 @@ __all__ = [
     "MessageListItem",
     "StyleTransferRequest",
     "StyleTransferResponse",
+    # Config
+    "ConfigItem",
+    "ConfigCategory",
+    "ConfigListResponse",
+    "ConfigUpdateItem",
+    "ConfigUpdateRequest",
+    "ConfigUpdateResponse",
 ]

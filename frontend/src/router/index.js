@@ -5,6 +5,7 @@ import Evaluation from '@/views/Evaluation.vue'
 import StyleManagement from '@/views/StyleManagement.vue'
 import SystemMonitoring from '@/views/SystemMonitoring.vue'
 import Explore from '@/views/Explore.vue'
+import ConfigManagement from '@/views/ConfigManagement.vue'
 
 const routes = [
   {
@@ -46,6 +47,12 @@ const routes = [
     name: 'Explore',
     component: Explore,
     meta: { title: '探索', icon: 'Compass' }
+  },
+  {
+    path: '/config-management',
+    name: 'ConfigManagement',
+    component: ConfigManagement,
+    meta: { title: '配置管理', icon: 'Setting', isManagement: true }
   }
 ]
 
