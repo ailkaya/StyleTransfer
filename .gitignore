@@ -76,3 +76,4 @@ logs/
 /backend/training_text
 /explore-service/explore_uploads
 /count.py
+/explore-service/run.sh

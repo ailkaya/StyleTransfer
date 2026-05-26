@@ -124,12 +124,12 @@
         <div class="metric-item">
           <div class="metric-header">
             <span class="metric-name">风格符合度</span>
-            <span class="metric-value" :class="getScoreClass(data.style_score)">
+            <span class="metric-value" :class="getScoreClass3(data.style_score)">
               {{ data.style_score }}%
             </span>
           </div>
           <div class="metric-bar">
-            <div class="metric-fill" :class="getScoreClass(data.style_score)"
+            <div class="metric-fill" :class="getScoreClass3(data.style_score)"
                  :style="{ width: data.style_score + '%' }"></div>
           </div>
           <p class="metric-desc">目标风格匹配程度</p>
@@ -420,6 +420,11 @@ function getScoreClass(score) {
 function getScoreClass2(score) {
   if (score >= 50) return 'excellent'
   if (score >= 20) return 'good'
+  return 'poor'
+}
+function getScoreClass3(score) {
+  if (score >= 70) return 'excellent'
+  if (score >= 50) return 'good'
   return 'poor'
 }
 
